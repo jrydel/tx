@@ -6,6 +6,7 @@
 
 import { $ } from "bun"
 import { chmod, mkdir } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
 
 const YT_DLP = "2026.08.19" // first install only; tx keeps its own copy current at runtime
 const QUICKJS = "v0.17.0"
@@ -36,7 +37,8 @@ const target = args.includes("--target")
 const assets = DOWNLOADS[target]
 if (!assets) throw new Error(`no sidecar downloads for target ${target}`)
 const exe = target.includes("windows") ? ".exe" : ""
-const dir = new URL("../src-tauri/binaries/", import.meta.url).pathname
+// fileURLToPath, not URL.pathname: on Windows the latter yields "/D:/…", which is not a path.
+const dir = fileURLToPath(new URL("../src-tauri/binaries/", import.meta.url))
 await mkdir(dir, { recursive: true })
 
 async function download(url: string, name: string) {
@@ -59,7 +61,7 @@ await download(
 )
 
 if (!args.includes("--skip-cli")) {
-  const root = new URL("../src-tauri/", import.meta.url).pathname
+  const root = fileURLToPath(new URL("../src-tauri/", import.meta.url))
   // Same features as the app build (e.g. --features metal), so tx-core compiles once.
   const features = args.includes("--features")
     ? ["--features", flag("--features")]
