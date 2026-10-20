@@ -1,5 +1,16 @@
-__pycache__/
-.venv/
-.pytest_cache/
-*.egg-info/
-dist/
+node_modules
+dist
+*.local
+*.log
+
+# Rust / Tauri
+src-tauri/target
+src-tauri/gen/schemas
+# Bundled tools, downloaded by scripts/fetch-sidecars.ts
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
