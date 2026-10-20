@@ -1,14 +1,17 @@
 """Fetch a transcript: platform captions via yt-dlp, else local Whisper on the audio."""
 
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+import imageio_ffmpeg
 from yt_dlp import YoutubeDL
 
 from .parse import Seg, Transcript, fmt_time, parse_json3, parse_vtt
+from .paths import NO_WINDOW
 
 _BASE_OPTS = {
     "quiet": True,
@@ -22,6 +25,10 @@ _BASE_OPTS = {
 
 def log(msg: str) -> None:
     print(f"tx: {msg}", file=sys.stderr, flush=True)
+
+
+def _tty() -> bool:
+    return sys.stderr.isatty()
 
 
 def _pick_track(tracks: dict, prefs: list[str]) -> str | None:
@@ -70,10 +77,12 @@ def _whisper(url: str, item: int | None, duration: float | None, lang: str | Non
             ydl.download([url])
         audio = next(Path(tmp).glob("audio.*"))
         # Decode with ffmpeg: faster-whisper's PyAV path breaks on current av releases.
+        ffmpeg = shutil.which("ffmpeg") or imageio_ffmpeg.get_ffmpeg_exe()
         pcm = subprocess.run(
-            ["ffmpeg", "-nostdin", "-v", "error", "-i", str(audio), "-f", "f32le", "-ac", "1", "-ar", "16000", "-"],
+            [ffmpeg, "-nostdin", "-v", "error", "-i", str(audio), "-f", "f32le", "-ac", "1", "-ar", "16000", "-"],
             capture_output=True,
             check=True,
+            creationflags=NO_WINDOW,
         ).stdout
         log(f"transcribing with whisper {model_name} (first run downloads the model)…")
         model = WhisperModel(model_name, device="auto", compute_type="auto")
@@ -82,9 +91,9 @@ def _whisper(url: str, item: int | None, duration: float | None, lang: str | Non
         total = f" / {fmt_time(duration)}" if duration else ""
         for s in seg_iter:
             segs.append(Seg(s.start, s.text.strip()))
-            if sys.stderr.isatty():
+            if _tty():
                 print(f"\rtx: {fmt_time(s.end)}{total}", end="", file=sys.stderr, flush=True)
-        if sys.stderr.isatty():
+        if _tty():
             print(file=sys.stderr)
     return [s for s in segs if s.text], f"whisper {model_name} ({winfo.language})"
 
