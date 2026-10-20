@@ -33,12 +33,44 @@
     "shortDescription": "TL;DRs of new videos from channels you follow",
     "longDescription": "tx watches YouTube channels you pick, transcribes new uploads, and scores each one against a description of what you want to learn, with a TL;DR, takeaways and timestamps.",
     "copyright": "Jiří Rýdel",
-    "externalBin": ["binaries/yt-dlp", "binaries/qjs", "binaries/tx"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "externalBin": [
+      "binaries/yt-dlp",
+      "binaries/qjs",
+      "binaries/tx"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "linux": {
-      "deb": { "depends": ["libayatana-appindicator3-1"] },
-      "rpm": { "depends": ["libayatana-appindicator-gtk3"] }
+      "deb": {
+        "depends": [
+          "libayatana-appindicator3-1"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "libayatana-appindicator-gtk3"
+        ]
+      }
     },
-    "macOS": { "minimumSystemVersion": "11.0" }
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQzOUI1OTRDRUU1REY1QjAKUldTdzlWM3VURm1iMDZuRytsWHVnNnE4TWxLcVcyVjg5dXFYaDdUUW9PTnU0dWRDNzhVOFVHOGYK",
+      "endpoints": [
+        "https://github.com/jrydel/tx/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

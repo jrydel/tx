@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import {
   ClapperboardIcon,
+  DownloadIcon,
   RefreshCwIcon,
   SlidersHorizontalIcon,
   TvMinimalPlayIcon,
@@ -8,6 +9,7 @@ import {
 import { toast } from "sonner"
 import { Link, useLocation, useSearch } from "wouter"
 
+import { useAppUpdate, useAppVersion } from "@/hooks/use-app-update"
 import { useStatus } from "@/hooks/use-status"
 import { Button } from "@/components/ui/button"
 import {
@@ -106,6 +108,38 @@ function StatusLine() {
   )
 }
 
+/** Version line, plus an update button when GitHub has a newer release. */
+function AppVersion() {
+  const { data: version } = useAppVersion()
+  const { update, install } = useAppUpdate()
+  const available = update.data
+  return (
+    <div className="flex flex-col gap-2 px-2">
+      {available && (
+        <Button
+          size="sm"
+          className="bg-marker text-marker-foreground hover:bg-marker/85"
+          disabled={install.isPending}
+          onClick={() => install.mutate(available)}
+        >
+          {install.isPending ? (
+            <Spinner data-icon="inline-start" />
+          ) : (
+            <DownloadIcon data-icon="inline-start" />
+          )}
+          Update to {available.version}
+        </Button>
+      )}
+      <Link
+        href="/settings#updates"
+        className="timecode text-[10px] text-sidebar-foreground/50 hover:text-sidebar-foreground"
+      >
+        tx {version ?? "…"}
+      </Link>
+    </div>
+  )
+}
+
 export function AppSidebar() {
   const [location] = useLocation()
   const search = useSearch()
@@ -178,6 +212,7 @@ export function AppSidebar() {
       </SidebarContent>
       <SidebarFooter>
         <StatusLine />
+        <AppVersion />
       </SidebarFooter>
     </Sidebar>
   )

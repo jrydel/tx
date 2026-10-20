@@ -40,6 +40,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { useAppUpdate, useAppVersion } from "@/hooks/use-app-update"
 import { api, type Settings } from "@/lib/api"
 
 const PROFILE_EXAMPLE =
@@ -263,7 +264,67 @@ export function SettingsPage() {
             </FieldGroup>
           </CardContent>
         </Card>
+
+        <UpdatesCard />
       </div>
     </>
+  )
+}
+
+/** Version and updates. Installed releases come from GitHub, signed by the release workflow. */
+function UpdatesCard() {
+  const { data: version } = useAppVersion()
+  const { update, install } = useAppUpdate()
+  const available = update.data
+  const status = update.isFetching
+    ? "Checking for updates…"
+    : update.isError
+      ? `Couldn't check for updates: ${String(update.error)}`
+      : available
+        ? `tx ${available.version} is available.`
+        : update.isSuccess
+          ? "You're on the latest version."
+          : ""
+  return (
+    <Card id="updates">
+      <CardHeader>
+        <CardTitle>Version</CardTitle>
+        <CardDescription>
+          <span className="timecode text-foreground">tx {version ?? "…"}</span>
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <p className="text-sm text-muted-foreground" aria-live="polite">
+          {status}
+        </p>
+        {available?.body && (
+          <p className="text-sm whitespace-pre-line text-muted-foreground">
+            {available.body}
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          On Linux .deb and .rpm installs, your system asks for your password to
+          install the update.
+        </p>
+      </CardContent>
+      <CardFooter className="justify-end gap-2">
+        <Button
+          variant="outline"
+          disabled={update.isFetching}
+          onClick={() => update.refetch()}
+        >
+          Check for updates
+        </Button>
+        {available && (
+          <Button
+            disabled={install.isPending}
+            onClick={() => install.mutate(available)}
+          >
+            {install.isPending && <Spinner data-icon="inline-start" />}
+            Update and restart
+          </Button>
+        )}
+      </CardFooter>
+    </Card>
   )
 }
