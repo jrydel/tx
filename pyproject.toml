@@ -1,7 +1,7 @@
 [project]
 name = "tx"
 version = "0.1.0"
-description = "Video URL -> skimmable transcript in your terminal, then ask an agent about it"
+description = "TL;DRs of new videos from channels you follow, scored against what you want to learn; transcripts in your terminal"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
