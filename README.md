@@ -32,7 +32,7 @@ Uploads from before you started watching a channel are listed under *Earlier upl
 
 ## Terminal
 
-The installers include the `tx` command (also attached to each release as `tx-cli-<platform>`).
+The installers include the `tx` command. It's also attached to each release as a single file, `tx-cli-<platform>`; on first use that one downloads the official yt-dlp and QuickJS builds into tx's data folder.
 
 ```sh
 tx "https://youtu.be/VIDEO_ID"                   # transcript in your pager, [mm:ss] paragraphs

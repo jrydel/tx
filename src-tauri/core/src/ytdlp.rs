@@ -7,29 +7,71 @@ use serde_json::Value;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-fn yt_dlp() -> Result<PathBuf> {
-    paths::bundled("yt-dlp").context("yt-dlp not found; reinstall tx or install yt-dlp")
+/// A tool tx needs: the bundled/installed copy, or (standalone `tx` CLI) the official build,
+/// downloaded into the data dir on first use.
+async fn tool(name: &str) -> Result<PathBuf> {
+    if let Some(p) = paths::bundled(name) {
+        return Ok(p);
+    }
+    let url = match name {
+        "yt-dlp" => {
+            format!("https://github.com/yt-dlp/yt-dlp/releases/latest/download/{YT_DLP_ASSET}")
+        }
+        "qjs" => format!(
+            "https://github.com/quickjs-ng/quickjs/releases/download/{QUICKJS_VERSION}/{QJS_ASSET}"
+        ),
+        other => bail!("unknown tool: {other}"),
+    };
+    log::info!("downloading {name} from {url}");
+    install_bin(name, &url)
+        .await
+        .with_context(|| format!("downloading {name}"))
 }
 
-/// Common flags. YouTube needs a JS runtime for signature solving: tx ships QuickJS.
-fn base_args() -> Vec<OsString> {
+/// Download an executable into the data dir's bin/, where `paths::bundled` looks first.
+async fn install_bin(name: &str, url: &str) -> Result<PathBuf> {
+    let bytes = reqwest::Client::new()
+        .get(url)
+        .header("User-Agent", "tx")
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+    let dir = paths::data_dir().join("bin");
+    tokio::fs::create_dir_all(&dir).await?;
+    let dest = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+    let part = dest.with_extension("part");
+    tokio::fs::write(&part, &bytes).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755)).await?;
+    }
+    tokio::fs::rename(&part, &dest).await?; // atomic on Unix; fails harmlessly on Windows while the tool runs
+    Ok(dest)
+}
+
+/// Common flags. YouTube needs a JS runtime for signature solving: tx uses QuickJS.
+async fn base_args() -> Vec<OsString> {
     let mut args: Vec<OsString> = ["--no-warnings", "--ignore-config"]
         .map(OsString::from)
         .into();
-    if let Some(qjs) = paths::bundled("qjs") {
-        args.extend([
+    match tool("qjs").await {
+        Ok(qjs) => args.extend([
             "--no-js-runtimes".into(),
             "--js-runtimes".into(),
             format!("quickjs:{}", qjs.display()).into(),
-        ]);
+        ]),
+        Err(e) => log::warn!("no QuickJS ({e:#}); yt-dlp falls back to any installed JS runtime"),
     }
     args
 }
 
 /// Run yt-dlp; return stdout, or the ERROR line yt-dlp printed.
 pub async fn run(args: Vec<OsString>) -> Result<Vec<u8>> {
-    let out = paths::command(&yt_dlp()?)
-        .args(base_args())
+    let out = paths::command(&tool("yt-dlp").await?)
+        .args(base_args().await)
         .args(args)
         .output()
         .await
@@ -208,8 +250,8 @@ pub async fn load(
     Ok((t, path))
 }
 
-/// Official standalone build for this platform, as named in yt-dlp's GitHub releases.
-const RELEASE_ASSET: &str = if cfg!(windows) {
+/// Official standalone builds for this platform, as named in the projects' GitHub releases.
+const YT_DLP_ASSET: &str = if cfg!(windows) {
     "yt-dlp.exe"
 } else if cfg!(target_os = "macos") {
     "yt-dlp_macos"
@@ -217,6 +259,20 @@ const RELEASE_ASSET: &str = if cfg!(windows) {
     "yt-dlp_linux_aarch64"
 } else {
     "yt-dlp_linux"
+};
+const QUICKJS_VERSION: &str = "v0.17.0"; // keep in step with scripts/sidecars.ts
+const QJS_ASSET: &str = if cfg!(windows) {
+    "qjs-windows-x86_64.exe"
+} else if cfg!(target_os = "macos") {
+    if cfg!(target_arch = "aarch64") {
+        "qjs-darwin-arm64"
+    } else {
+        "qjs-darwin-x86_64"
+    }
+} else if cfg!(target_arch = "aarch64") {
+    "qjs-linux-aarch64"
+} else {
+    "qjs-linux-x86_64"
 };
 
 /// YouTube changes often break old yt-dlp releases, so a long-running watcher keeps its own
@@ -240,26 +296,8 @@ pub async fn keep_current() -> Result<Option<String>> {
     if current == tag {
         return Ok(None);
     }
-    let url = format!("https://github.com/yt-dlp/yt-dlp/releases/download/{tag}/{RELEASE_ASSET}");
-    let bytes = client
-        .get(url)
-        .header("User-Agent", "tx")
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
-    let dir = paths::data_dir().join("bin");
-    tokio::fs::create_dir_all(&dir).await?;
-    let dest = dir.join(format!("yt-dlp{}", std::env::consts::EXE_SUFFIX));
-    let part = dest.with_extension("part");
-    tokio::fs::write(&part, &bytes).await?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        tokio::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755)).await?;
-    }
-    tokio::fs::rename(&part, &dest).await?; // atomic on Unix; fails harmlessly on Windows while yt-dlp runs
+    let url = format!("https://github.com/yt-dlp/yt-dlp/releases/download/{tag}/{YT_DLP_ASSET}");
+    install_bin("yt-dlp", &url).await?;
     Ok(Some(format!("{current} → {tag}")))
 }
 
