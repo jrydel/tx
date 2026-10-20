@@ -31,6 +31,16 @@ CREATE TABLE IF NOT EXISTS videos (
 );
 CREATE INDEX IF NOT EXISTS videos_published ON videos(published DESC);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS messages (
+    id         INTEGER PRIMARY KEY,
+    video_id   TEXT NOT NULL REFERENCES videos(id),
+    role       TEXT NOT NULL,              -- user | assistant
+    content    TEXT NOT NULL,
+    pending    INTEGER NOT NULL DEFAULT 0, -- assistant reply still streaming
+    error      TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS messages_video ON messages(video_id, id);
 ";
 
 pub const MAX_ATTEMPTS: i64 = 3;
@@ -203,27 +213,86 @@ fn video_row(r: &rusqlite::Row) -> rusqlite::Result<Video> {
     })
 }
 
-/// `worth`: at/above the notification threshold plus anything still in progress;
-/// `all`: every analyzed or pending video; `earlier`: uploads from before watching started.
-pub fn videos(conn: &Connection, view: &str, channel: Option<&str>) -> Result<Vec<Video>> {
+/// `analyzed`: every analyzed or in-progress video (score filters happen in the UI);
+/// `earlier`: uploads from before watching started.
+pub fn videos(conn: &Connection, view: &str) -> Result<Vec<Video>> {
     let filter = match view {
-        "worth" => {
-            "(v.status IN ('queued', 'working', 'error') OR (v.status = 'done' AND (v.relevance IS NULL OR v.relevance >= ?1)))"
-        }
-        "all" => "(v.status != 'skipped' AND ?1 IS NOT NULL)",
-        "earlier" => "(v.status = 'skipped' AND ?1 IS NOT NULL)",
+        "analyzed" => "v.status != 'skipped'",
+        "earlier" => "v.status = 'skipped'",
         other => anyhow::bail!("unknown view: {other}"),
     };
     let sql = format!(
         "SELECT {VIDEO_COLS} FROM videos v JOIN channels c ON c.id = v.channel_id \
-         WHERE {filter} AND (?2 IS NULL OR v.channel_id = ?2) ORDER BY v.published DESC LIMIT 300"
+         WHERE {filter} ORDER BY v.published DESC LIMIT 500"
     );
-    let min = get_settings(conn)?.notify_min;
     let rows = conn
         .prepare(&sql)?
-        .query_map(params![min, channel], video_row)?
+        .query_map([], video_row)?
         .collect::<rusqlite::Result<_>>()?;
     Ok(rows)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Message {
+    pub id: i64,
+    pub role: String,
+    pub content: String,
+    pub pending: bool,
+    pub error: Option<String>,
+    pub created_at: String,
+}
+
+pub fn messages(conn: &Connection, video_id: &str) -> Result<Vec<Message>> {
+    let rows = conn
+        .prepare("SELECT id, role, content, pending, error, created_at FROM messages WHERE video_id = ?1 ORDER BY id")?
+        .query_map(params![video_id], |r| {
+            Ok(Message {
+                id: r.get(0)?,
+                role: r.get(1)?,
+                content: r.get(2)?,
+                pending: r.get::<_, i64>(3)? == 1,
+                error: r.get(4)?,
+                created_at: r.get(5)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
+pub fn add_message(
+    conn: &Connection,
+    video_id: &str,
+    role: &str,
+    content: &str,
+    pending: bool,
+) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO messages(video_id, role, content, pending, created_at) VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![video_id, role, content, pending as i64, now()],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Final state of a streamed reply.
+pub fn finish_message(
+    conn: &Connection,
+    id: i64,
+    content: &str,
+    error: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE messages SET content = ?1, error = ?2, pending = 0 WHERE id = ?3",
+        params![content, error, id],
+    )?;
+    Ok(())
+}
+
+pub fn clear_messages(conn: &Connection, video_id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM messages WHERE video_id = ?1",
+        params![video_id],
+    )?;
+    Ok(())
 }
 
 pub fn video(conn: &Connection, id: &str) -> Result<Option<Video>> {
@@ -300,13 +369,34 @@ mod tests {
     }
 
     #[test]
-    fn views_split_by_threshold_and_status() {
+    fn views_split_by_status() {
         let conn = memory();
         seed(&conn);
-        assert_eq!(ids(videos(&conn, "worth", None).unwrap()), ["a", "c"]);
-        assert_eq!(ids(videos(&conn, "all", None).unwrap()), ["a", "b", "c"]);
-        assert_eq!(ids(videos(&conn, "earlier", None).unwrap()), ["d"]);
-        assert!(videos(&conn, "bogus", None).is_err());
+        assert_eq!(ids(videos(&conn, "analyzed").unwrap()), ["a", "b", "c"]);
+        assert_eq!(ids(videos(&conn, "earlier").unwrap()), ["d"]);
+        assert!(videos(&conn, "bogus").is_err());
+    }
+
+    #[test]
+    fn chat_messages_keep_order_and_finish_pending_replies() {
+        let conn = memory();
+        seed(&conn);
+        add_message(&conn, "a", "user", "why?", false).unwrap();
+        let reply = add_message(&conn, "a", "assistant", "", true).unwrap();
+        assert!(messages(&conn, "a").unwrap()[1].pending);
+        finish_message(&conn, reply, "because [01:02]", None).unwrap();
+        let thread = messages(&conn, "a").unwrap();
+        assert_eq!(
+            thread.iter().map(|m| m.role.as_str()).collect::<Vec<_>>(),
+            ["user", "assistant"]
+        );
+        assert!(!thread[1].pending && thread[1].content == "because [01:02]");
+        assert!(
+            messages(&conn, "b").unwrap().is_empty(),
+            "threads are per video"
+        );
+        clear_messages(&conn, "a").unwrap();
+        assert!(messages(&conn, "a").unwrap().is_empty());
     }
 
     #[test]

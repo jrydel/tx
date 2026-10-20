@@ -2,7 +2,7 @@ import { Fragment } from "react"
 
 // **bold**, `code`, and [mm:ss] timestamps. Rendered as React nodes, so text from analyses and
 // transcripts (untrusted: video creators control it) can never become markup.
-const TOKEN = /(\*\*[^*]+\*\*|`[^`]+`|\[(?:(\d+):)?(\d{1,2}):(\d{2})\])/g
+const TOKEN = /(\*\*.+?\*\*|`[^`]+`|\[(?:(\d+):)?(\d{1,2}):(\d{2})\])/g
 
 export function RichText({
   text,
@@ -20,7 +20,7 @@ export function RichText({
     if (token.startsWith("**")) {
       parts.push(
         <strong key={at} className="font-semibold">
-          {token.slice(2, -2)}
+          <RichText text={token.slice(2, -2)} onSeek={onSeek} />
         </strong>
       )
     } else if (token.startsWith("`")) {

@@ -149,6 +149,10 @@ pub fn run() {
             commands::autostart,
             commands::set_autostart,
             commands::open_url,
+            commands::chat,
+            commands::chat_send,
+            commands::chat_stop,
+            commands::chat_clear,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tx");

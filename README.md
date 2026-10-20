@@ -26,6 +26,10 @@ The installers aren't code-signed. On macOS, open tx once, then allow it under S
 2. **Settings** → describe who you are and what you want to learn. Write it in the language you want analyses in.
 3. That's it. tx checks watched channels every 30 minutes (from YouTube's public RSS feeds, no login needed) and lives in the tray; closing the window keeps it running. It starts at login unless you turn that off in Settings.
 
+**Videos** shows every analyzed upload with its thumbnail, score and TL;DR. Search, filter by channel, minimum score, or watch advice (watch / skim / skip), and sort by newest or best score; the score filter starts at your notification threshold.
+
+Open a video and use **Ask about this video** to put follow-up questions to Claude, ChatGPT-style: answers stream in from the transcript, cite timestamps you can click, and the thread is saved per video.
+
 Each analyzed video gets a film strip: the whole video as one strip, with a yellow mark wherever a takeaway is said and a band over the part worth skimming. Click a mark to jump there.
 
 Uploads from before you started watching a channel are listed under *Earlier uploads*, with an **Analyze** button; nothing is analyzed in bulk without you asking.

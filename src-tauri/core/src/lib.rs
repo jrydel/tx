@@ -1,8 +1,9 @@
-//! tx engine: transcripts (captions or local Whisper), channel watching, and analysis.
-//! Shared by the desktop app and the `tx` CLI; knows nothing about Tauri.
+//! tx engine: transcripts (captions or local Whisper), channel watching, analysis, and
+//! follow-up chat. Shared by the desktop app and the `tx` CLI; knows nothing about Tauri.
 
 pub mod agent;
 pub mod captions;
+pub mod chat;
 pub mod db;
 pub mod engine;
 pub mod feeds;

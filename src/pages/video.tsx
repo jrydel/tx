@@ -15,6 +15,7 @@ import { FilmStrip } from "@/components/film-strip"
 import { PageHeader } from "@/components/page-header"
 import { RichText } from "@/components/rich-text"
 import { ScoreBadge } from "@/components/score-badge"
+import { VideoChat } from "@/components/video-chat"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -275,11 +276,11 @@ export function VideoPage() {
               </p>
             )}
           </div>
-          <aside className="flex flex-col gap-3 lg:sticky lg:top-20 lg:self-start">
+          <aside className="flex flex-col gap-3 lg:sticky lg:top-20 lg:h-[calc(100svh-6.5rem)] lg:self-start">
             <button
               type="button"
               onClick={() => api.openUrl(video.url)}
-              className="group/thumb relative aspect-video w-full overflow-hidden rounded-lg bg-strip focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              className="group/thumb relative aspect-video w-full shrink-0 overflow-hidden rounded-lg bg-strip focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none lg:aspect-[21/9]"
               aria-label={`Watch ${video.title} on YouTube`}
             >
               <img
@@ -292,13 +293,13 @@ export function VideoPage() {
                 Watch on YouTube
               </span>
             </button>
-            <p className="text-xs text-muted-foreground">
-              Every timestamp on this page opens the video at that moment.
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Ask follow-up questions in a terminal:{" "}
-              <code className="timecode break-all">tx "{video.url}" -c</code>
-            </p>
+            <div className="flex h-[32rem] min-h-0 flex-col lg:h-auto lg:flex-1">
+              <VideoChat
+                videoId={video.id}
+                onSeek={seek}
+                disabled={video.status !== "done"}
+              />
+            </div>
           </aside>
         </div>
       </article>

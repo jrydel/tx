@@ -2,12 +2,12 @@
 
 use serde::Serialize;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{Emitter, State};
 use tauri_plugin_autostart::ManagerExt;
 use tx_core::captions::paragraphs;
 use tx_core::db::{self, Channel, Settings, Video};
 use tx_core::engine::{Engine, WorkerState};
-use tx_core::{agent, feeds, whisper, ytdlp};
+use tx_core::{agent, chat, feeds, whisper, ytdlp};
 
 type Res<T> = Result<T, String>;
 type Eng<'a> = State<'a, Arc<Engine>>;
@@ -59,8 +59,8 @@ pub fn status(engine: Eng) -> Res<Status> {
 }
 
 #[tauri::command]
-pub fn videos(engine: Eng, view: String, channel: Option<String>) -> Res<Vec<Video>> {
-    db::videos(&engine.db.lock().unwrap(), &view, channel.as_deref()).map_err(err)
+pub fn videos(engine: Eng, view: String) -> Res<Vec<Video>> {
+    db::videos(&engine.db.lock().unwrap(), &view).map_err(err)
 }
 
 #[tauri::command]
@@ -206,6 +206,39 @@ pub fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Res<bool> {
     let al = app.autolaunch();
     if enabled { al.enable() } else { al.disable() }.map_err(|e| e.to_string())?;
     al.is_enabled().map_err(|e| e.to_string())
+}
+
+fn chat_emitter(app: &tauri::AppHandle) -> chat::Emit {
+    let app = app.clone();
+    Arc::new(move |e: chat::ChatEvent| {
+        let _ = app.emit("chat", e);
+    })
+}
+
+#[tauri::command]
+pub fn chat(engine: Eng, id: String) -> Res<Vec<db::Message>> {
+    db::messages(&engine.db.lock().unwrap(), &id).map_err(err)
+}
+
+/// Async so it runs on the Tokio runtime the reply task is spawned on.
+#[tauri::command]
+pub async fn chat_send(
+    app: tauri::AppHandle,
+    engine: Eng<'_>,
+    id: String,
+    question: String,
+) -> Res<Vec<db::Message>> {
+    chat::send(&engine, &id, &question, chat_emitter(&app)).map_err(err)
+}
+
+#[tauri::command]
+pub fn chat_stop(app: tauri::AppHandle, engine: Eng, id: String) -> Res<()> {
+    chat::stop(&engine, &id, &chat_emitter(&app)).map_err(err)
+}
+
+#[tauri::command]
+pub fn chat_clear(app: tauri::AppHandle, engine: Eng, id: String) -> Res<()> {
+    chat::clear(&engine, &id, &chat_emitter(&app)).map_err(err)
 }
 
 #[tauri::command]

@@ -30,16 +30,22 @@ pub struct Engine {
     pub db: Db,
     pub wake: Notify,
     pub state: Mutex<WorkerState>,
+    pub chats: crate::chat::Chats,
     notify: Box<dyn Fn(Notice) + Send + Sync>,
 }
 
 impl Engine {
     pub fn open(notify: impl Fn(Notice) + Send + Sync + 'static) -> Result<Arc<Self>> {
         let conn = db::connect()?;
+        // Interrupted by a restart.
         conn.execute(
             "UPDATE videos SET status = 'queued' WHERE status = 'working'",
             [],
-        )?; // interrupted by a restart
+        )?;
+        conn.execute(
+            "UPDATE messages SET pending = 0, error = 'Interrupted' WHERE pending = 1",
+            [],
+        )?;
         Ok(Arc::new(Self {
             db: Mutex::new(conn),
             wake: Notify::new(),
@@ -47,6 +53,7 @@ impl Engine {
                 now: "idle",
                 ..Default::default()
             }),
+            chats: Default::default(),
             notify: Box::new(notify),
         }))
     }

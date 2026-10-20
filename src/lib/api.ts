@@ -54,12 +54,31 @@ export type Transcript = {
   paragraphs: { start: number; text: string }[]
 }
 
-export type View = "worth" | "all" | "earlier"
+export type View = "analyzed" | "earlier"
+
+export type Message = {
+  id: number
+  role: "user" | "assistant"
+  content: string
+  pending: boolean
+  error: string | null
+  created_at: string
+}
+
+/** Emitted on the "chat" event while a reply streams (mirrors chat::ChatEvent). */
+export type ChatEvent =
+  | { kind: "delta"; video_id: string; message_id: number; text: string }
+  | {
+      kind: "done"
+      video_id: string
+      message_id: number
+      content: string
+      error: string | null
+    }
 
 export const api = {
   status: () => invoke<Status>("status"),
-  videos: (view: View, channel?: string) =>
-    invoke<Video[]>("videos", { view, channel: channel ?? null }),
+  videos: (view: View) => invoke<Video[]>("videos", { view }),
   video: (id: string) => invoke<Video>("video", { id }),
   transcript: (id: string) => invoke<Transcript>("transcript", { id }),
   analyze: (id: string) => invoke<Video>("analyze", { id }),
@@ -79,4 +98,9 @@ export const api = {
   setAutostart: (enabled: boolean) =>
     invoke<boolean>("set_autostart", { enabled }),
   openUrl: (url: string) => invoke<void>("open_url", { url }),
+  chat: (id: string) => invoke<Message[]>("chat", { id }),
+  chatSend: (id: string, question: string) =>
+    invoke<Message[]>("chat_send", { id, question }),
+  chatStop: (id: string) => invoke<void>("chat_stop", { id }),
+  chatClear: (id: string) => invoke<void>("chat_clear", { id }),
 }
