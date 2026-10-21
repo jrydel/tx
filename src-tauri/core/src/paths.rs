@@ -3,12 +3,27 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
+static DATA_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Use `dir` for all data in this process (`tx mcp --data-dir`). Agents start MCP servers with a
+/// cleaned environment, so `tx run` passes its own data folder explicitly.
+pub fn set_data_dir(dir: PathBuf) {
+    let _ = DATA_DIR.set(dir);
+}
+
 /// Persistent data (database, Whisper models): ~/.local/share/tx, ~/Library/Application Support/tx,
-/// %LOCALAPPDATA%\tx.
+/// %LOCALAPPDATA%\tx, `$TX_DATA_DIR`, or the folder given to `set_data_dir`.
 pub fn data_dir() -> PathBuf {
-    let p = dirs::data_local_dir()
-        .unwrap_or_else(env::temp_dir)
-        .join("tx");
+    let p = DATA_DIR.get().cloned().unwrap_or_else(|| {
+        env::var_os("TX_DATA_DIR")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                dirs::data_local_dir()
+                    .unwrap_or_else(env::temp_dir)
+                    .join("tx")
+            })
+    });
     let _ = std::fs::create_dir_all(&p);
     p
 }

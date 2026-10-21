@@ -4,7 +4,11 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::io::{IsTerminal, Write};
 use std::process::{ExitCode, Stdio};
-use tx_core::{agent, captions, engine::Engine, paths, ytdlp};
+use tx_core::{agent, captions, db, engine::Engine, paths, report, ytdlp};
+
+mod agents;
+mod mcp;
+mod schedule;
 
 #[derive(Parser)]
 #[command(
@@ -43,8 +47,72 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Check watched channels and analyze new videos once (what the desktop app does in the background)
+    /// MCP server over stdio, for Claude Code, Claude Desktop, Codex and other MCP clients
+    Mcp {
+        /// Data folder to use (default: the OS data folder, or $TX_DATA_DIR)
+        #[arg(long)]
+        data_dir: Option<std::path::PathBuf>,
+    },
+    /// Screen new videos once with your agent (uses your Claude or ChatGPT subscription)
+    Run {
+        /// Which agent does the analysis (default: whichever is installed)
+        #[arg(long, value_enum)]
+        agent: Option<agents::Agent>,
+    },
+    /// Make tx available inside an agent's normal conversations
+    Setup {
+        #[arg(value_enum)]
+        target: agents::Target,
+    },
+    /// Run `tx run` automatically (daily by default) with the OS scheduler
+    Schedule {
+        #[arg(long, value_enum)]
+        agent: Option<agents::Agent>,
+        /// Daily time, HH:MM (default 08:00)
+        #[arg(long, conflicts_with = "every")]
+        at: Option<String>,
+        /// Every N hours instead, e.g. 3h
+        #[arg(long)]
+        every: Option<String>,
+        /// Remove the schedule
+        #[arg(long, conflicts_with_all = ["at", "every", "agent"])]
+        off: bool,
+        /// Show the current schedule
+        #[arg(long, conflicts_with_all = ["at", "every", "agent", "off"])]
+        status: bool,
+    },
+    /// Write a markdown digest of videos analyzed since the last one
+    Digest {
+        /// Save digests in this folder from now on (e.g. an iCloud, OneDrive or Drive folder)
+        #[arg(long)]
+        dir: Option<std::path::PathBuf>,
+    },
+    /// Analyze new videos with `claude -p` directly, without MCP (what the desktop app does)
     Check,
+}
+
+/// Desktop notification for a digest with something worth the user's time.
+pub fn notify_digest(d: &report::Digest) {
+    if d.worth == 0 {
+        return;
+    }
+    let body = match &d.path {
+        Some(p) => format!(
+            "{} of {} new videos are worth your time.\n{}",
+            d.worth,
+            d.total,
+            p.display()
+        ),
+        None => format!("{} new videos are worth your time.", d.worth),
+    };
+    if let Err(e) = notify_rust::Notification::new()
+        .appname("tx")
+        .summary("tx digest")
+        .body(&body)
+        .show()
+    {
+        eprintln!("tx: notification failed: {e}");
+    }
 }
 
 fn page(text: &str) -> Result<()> {
@@ -71,12 +139,97 @@ fn page(text: &str) -> Result<()> {
 }
 
 async fn run(cli: Cli) -> Result<i32> {
-    if let Some(Command::Check) = cli.command {
-        let engine =
-            Engine::open(|n| eprintln!("tx: {} — {}", n.title, n.body.replace('\n', " · ")))?;
-        let (queued, analyzed) = engine.check().await?;
-        eprintln!("tx: {queued} new video(s) queued, {analyzed} analyzed");
-        return Ok(0);
+    match cli.command {
+        Some(Command::Mcp { data_dir }) => {
+            if let Some(dir) = data_dir {
+                paths::set_data_dir(dir);
+            }
+            mcp::serve().await?;
+            return Ok(0);
+        }
+        Some(Command::Run { agent }) => {
+            let agent = match agent {
+                Some(a) => a,
+                None => agents::Agent::detect()?,
+            };
+            let code = tokio::task::spawn_blocking(move || agents::run(agent)).await??;
+            // Catch anything the agent analyzed but didn't put in a digest.
+            let d = report::write_digest(&db::connect()?)?;
+            notify_digest(&d);
+            if let Some(p) = &d.path {
+                eprintln!("tx: digest written to {}", p.display());
+            }
+            return Ok(code);
+        }
+        Some(Command::Setup { target }) => {
+            agents::setup(target)?;
+            return Ok(0);
+        }
+        Some(Command::Schedule {
+            agent,
+            at,
+            every,
+            off,
+            status,
+        }) => {
+            if status {
+                let s = schedule::status()?;
+                println!(
+                    "{}",
+                    if s.is_empty() {
+                        "tx run is not scheduled.".to_string()
+                    } else {
+                        s
+                    }
+                );
+            } else if off {
+                schedule::uninstall()?;
+                println!("tx run is no longer scheduled.");
+            } else {
+                let agent = match agent {
+                    Some(a) => a,
+                    None => agents::Agent::detect()?,
+                };
+                let when = schedule::install(
+                    agent,
+                    schedule::When::parse(at.as_deref(), every.as_deref())?,
+                )?;
+                println!(
+                    "tx run --agent {agent:?} scheduled {when}. Check with `tx schedule --status`."
+                );
+            }
+            return Ok(0);
+        }
+        Some(Command::Digest { dir }) => {
+            let conn = db::connect()?;
+            if let Some(dir) = dir {
+                std::fs::create_dir_all(&dir)?;
+                db::set_value(
+                    &conn,
+                    "digest_dir",
+                    &dir.canonicalize()?.display().to_string(),
+                )?;
+            }
+            let d = report::write_digest(&conn)?;
+            notify_digest(&d);
+            match &d.path {
+                Some(p) => println!("{}\n(saved to {})", d.markdown, p.display()),
+                None => println!("{}", d.markdown),
+            }
+            println!(
+                "Digests are saved in {}",
+                report::digest_dir(&conn)?.display()
+            );
+            return Ok(0);
+        }
+        Some(Command::Check) => {
+            let engine =
+                Engine::open(|n| eprintln!("tx: {} — {}", n.title, n.body.replace('\n', " · ")))?;
+            let (queued, analyzed) = engine.check().await?;
+            eprintln!("tx: {queued} new video(s) queued, {analyzed} analyzed");
+            return Ok(0);
+        }
+        None => {}
     }
     let url = cli.url.context("pass a video URL (see tx --help)")?;
     let progress: ytdlp::Progress = Box::new(|m| eprintln!("tx: {m}"));

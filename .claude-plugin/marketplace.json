@@ -1,0 +1,12 @@
+{
+  "name": "tx",
+  "description": "tx: TL;DRs of new YouTube videos from channels you follow",
+  "owner": { "name": "Jiří Rýdel", "url": "https://github.com/jrydel" },
+  "plugins": [
+    {
+      "name": "tx",
+      "source": "./plugin",
+      "description": "Watch YouTube channels; Claude screens new uploads against what you want to learn and writes a digest."
+    }
+  ]
+}

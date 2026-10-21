@@ -2,80 +2,109 @@
 
 Don't watch the video. Read it, then decide.
 
-tx watches the YouTube channels you pick. Each new upload is transcribed and scored 0–5 against a description of what *you* want to learn, with a TL;DR, takeaways at their timestamps, and whether it's worth watching at all. Uploads that clear your bar send a desktop notification. The rest wait in a list you can skim.
+tx watches the YouTube channels you pick. Every new upload is transcribed and screened against a description of what *you* want to learn: a 0–5 score, a TL;DR, takeaways at their timestamps, and whether it's worth watching at all. Each morning you get a digest of what's worth your time.
 
-It also works one-off from a terminal: `tx URL` prints any video's transcript.
+**Your own AI does the thinking, on your existing subscription.** tx runs on your computer and fetches channels and transcripts (on your own internet connection, which YouTube doesn't block). Claude Code, Claude Desktop or Codex (ChatGPT) reads them and writes the analysis. No accounts, no servers, no API keys, no cost beyond the subscription you already have.
+
+Open source under the MIT license. macOS, Linux and Windows.
 
 ## Install
 
-Download the installer for your system from [Releases](https://github.com/jrydel/tx/releases/latest):
+```sh
+# macOS (Apple Silicon) and Linux (x86_64)
+curl -fsSL https://raw.githubusercontent.com/jrydel/tx/master/install.sh | sh
+```
 
-| System | File |
-|---|---|
-| macOS (Apple Silicon) | `tx_*_aarch64.dmg` |
-| Windows | `tx_*_x64-setup.exe` or `.msi` |
-| Linux | `.deb` (Debian/Ubuntu), `.rpm` (Fedora), `.AppImage` (anything) |
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/jrydel/tx/master/install.ps1 | iex
+```
 
-tx uses [Claude Code](https://claude.com/claude-code) to analyze videos, on your own subscription: install it and sign in once in a terminal (`claude`).
+It installs one `tx` binary. On first use it downloads the official [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [QuickJS](https://github.com/quickjs-ng/quickjs) builds into its data folder and keeps yt-dlp current.
 
-The installers aren't code-signed. On macOS, open tx once, then allow it under System Settings → Privacy & Security. On Windows, SmartScreen asks you to confirm.
+## Connect your AI
 
-## Use
+| You have | Run | Then ask |
+|---|---|---|
+| **Claude Code** | `tx setup claude`, or install the plugin: `/plugin marketplace add jrydel/tx` then `/plugin install tx@tx` | "watch @fireship and @t3dotgg in tx", "screen my new videos" |
+| **Claude Desktop** | `tx setup claude-desktop`, then restart Claude | same |
+| **ChatGPT** (via [Codex CLI](https://github.com/openai/codex)) | `tx setup codex` | same, in `codex` |
 
-1. **Channels** → *Import subscriptions* reads the YouTube login of a browser on this computer (`chrome`, `firefox`, `edge`, `safari`, `brave`; another profile as `chrome:Profile 2`). Or add any channel by `@handle` or URL. Switch on **Watch** for the ones you care about.
-2. **Settings** → describe who you are and what you want to learn. Write it in the language you want analyses in.
-3. That's it. tx checks watched channels every 30 minutes (from YouTube's public RSS feeds, no login needed) and lives in the tray; closing the window keeps it running. It starts at login unless you turn that off in Settings.
+The first time, tell it who you are and what you want to learn ("I'm a backend engineer building LLM features; I want concrete agent and eval techniques; skip hype"). tx stores that profile and scores every video against it.
 
-**Videos** shows every analyzed upload with its thumbnail, score and TL;DR. Search, filter by channel, minimum score, or watch advice (watch / skim / skip), and sort by newest or best score; the score filter starts at your notification threshold.
+The Claude Code plugin also adds the **screen-videos** skill, so Claude follows the same procedure every time.
 
-Open a video and use **Ask about this video** to put follow-up questions to Claude, ChatGPT-style: answers stream in from the transcript, cite timestamps you can click, and the thread is saved per video.
+## Every morning, automatically
 
-Each analyzed video gets a film strip: the whole video as one strip, with a yellow mark wherever a takeaway is said and a band over the part worth skimming. Click a mark to jump there.
+```sh
+tx schedule                    # daily at 08:00 with whichever agent is installed
+tx schedule --at 07:30 --agent codex
+tx schedule --every 3h
+tx schedule --status
+tx schedule --off
+```
 
-Uploads from before you started watching a channel are listed under *Earlier uploads*, with an **Analyze** button; nothing is analyzed in bulk without you asking.
+This uses the OS scheduler (a systemd user timer on Linux, a LaunchAgent on macOS, Task Scheduler on Windows) to run `tx run`: your agent checks the watched channels, analyzes new uploads, and tx writes a markdown digest. If something scores at or above your bar (3 by default), you get a desktop notification. Your computer has to be on; a missed run catches up at the next start on Linux and macOS.
+
+**Read it on your phone:** point the digests at a synced folder and open them in any notes app.
+
+```sh
+tx digest --dir ~/Library/Mobile\ Documents/com~apple~CloudDocs/tx    # iCloud Drive
+tx digest --dir ~/OneDrive/tx                                          # OneDrive, Dropbox, Drive…
+```
+
+Follow-up questions are just a normal conversation with your AI: "in the Gemini video, what exactly did he say about pricing?"
 
 ## Terminal
-
-The installers include the `tx` command. It's also attached to each release as a single file, `tx-cli-<platform>`; on first use that one downloads the official yt-dlp and QuickJS builds into tx's data folder.
 
 ```sh
 tx "https://youtu.be/VIDEO_ID"                   # transcript in your pager, [mm:ss] paragraphs
 tx URL -a "what does he say about pricing?"      # one-shot answer via claude -p
 tx URL -c                                        # interactive claude session on the transcript
 tx URL | llm "summarize"                         # pipe anywhere
-tx check                                         # one watch-and-analyze pass, like the app does
+tx run                                           # one screening pass now
+tx digest                                        # digest of everything analyzed since the last one
 ```
 
-Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) site (YouTube, X, Vimeo, TikTok, podcasts…).
+Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) site (YouTube, X, Vimeo, TikTok, podcasts…). Videos without captions are transcribed locally with [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`-m tiny|base|small|medium|large-v3-turbo`).
 
-| Flag | |
+## MCP tools
+
+`tx mcp` is a standard stdio MCP server, so any MCP client works. Tools:
+
+| Tool | Does |
 |---|---|
-| `-a, --ask Q` | one-shot question; agent = `$TX_AGENT` (default `claude -p`), transcript on stdin |
-| `-c, --chat` | run `$TX_CHAT_AGENT` (default `claude`) pointed at the transcript file |
-| `-l, --lang CODE` | caption/audio language (`en`, `cs`, …) |
-| `-w, --whisper` | skip captions, always transcribe locally |
-| `-m, --model NAME` | `tiny`, `base`, `small` (default), `medium`, `large-v3-turbo`; or `$TX_WHISPER_MODEL` |
-| `-T, --no-timestamps` | plain paragraphs |
-| `-r, --refresh` | ignore the cached transcript |
+| `get_profile` / `set_profile` | what the user wants to learn |
+| `watch_channel` / `unwatch_channel` / `list_channels` | channels by `@handle`, URL or id |
+| `import_subscriptions` | read YouTube subscriptions from a signed-in browser (`chrome`, `firefox`, `chrome:Profile 2`…) |
+| `check_new_videos` | poll watched channels (RSS); list uploads waiting for analysis |
+| `get_transcript` | timestamped transcript of a tx video or any URL, in parts for long videos |
+| `save_analysis` / `skip_video` | store the agent's score, verdict, TL;DR, takeaways and watch advice |
+| `feed` | recently analyzed videos |
+| `write_digest` | markdown digest + notification |
 
-## How it works
+Only uploads published after you start watching a channel are screened automatically, so adding a channel doesn't trigger a backlog.
 
-- **Transcripts:** platform captions first (manual, then auto-generated, in the video's language), fetched by a bundled [yt-dlp](https://github.com/yt-dlp/yt-dlp) with [QuickJS](https://github.com/quickjs-ng/quickjs) as its JavaScript runtime. Videos without captions (e.g. X clips) are transcribed on your computer with [whisper.cpp](https://github.com/ggml-org/whisper.cpp), compiled into tx (Metal GPU on Apple Silicon). Models download on first use.
-- **Staying current:** YouTube breaks old yt-dlp releases regularly, so tx downloads the latest official yt-dlp once a day into its data folder.
-- **Analysis:** `claude -p` with your profile and the transcript. Nothing is sent anywhere else.
-- **Data:** a SQLite database in `~/.local/share/tx` (Linux), `~/Library/Application Support/tx` (macOS), or `%LOCALAPPDATA%\tx` (Windows).
+## Desktop app (optional)
+
+A desktop app with a feed, filters, film-strip timelines and per-video chat is available from [Releases](https://github.com/jrydel/tx/releases/latest). It shares the same data, so channels and analyses show up in both. It updates itself from GitHub Releases.
+
+## Data
+
+A SQLite database and digests in `~/.local/share/tx` (Linux), `~/Library/Application Support/tx` (macOS) or `%LOCALAPPDATA%\tx` (Windows). Transcripts are cached in the OS cache folder.
 
 ## Build from source
 
-Needs [bun](https://bun.sh), Rust, CMake and Clang (for whisper.cpp), plus [Tauri's system dependencies](https://v2.tauri.app/start/prerequisites/).
+Needs Rust, CMake and Clang (for whisper.cpp); [bun](https://bun.sh) and [Tauri's dependencies](https://v2.tauri.app/start/prerequisites/) only for the desktop app.
 
 ```sh
-git clone https://github.com/jrydel/tx && cd tx
-bun install
-bun run sidecars          # downloads yt-dlp + QuickJS, builds the tx CLI into src-tauri/binaries/
-bun run tauri dev         # the desktop app with hot reload
-bun run tauri build       # installers for this platform (add -- --features metal on Apple Silicon)
-cd src-tauri && cargo test --workspace
+git clone https://github.com/jrydel/tx && cd tx/src-tauri
+cargo build --release -p tx-cli        # target/release/tx
+cargo test --workspace
 ```
 
-Layout: `src/` is the React + shadcn UI, `src-tauri/core` the engine (no Tauri), `src-tauri/cli` the `tx` command, `src-tauri/src` the desktop shell (window, tray, commands). Releases are built by `.github/workflows/release.yml` when a `v*` tag is pushed.
+Layout: `src-tauri/core` is the engine, `src-tauri/cli` the `tx` command and MCP server, `plugin/` the Claude Code plugin and skill, `src/` + `src-tauri/src` the optional desktop app. Releases are built by `.github/workflows/release.yml` when a `v*` tag is pushed.
+
+## License
+
+MIT

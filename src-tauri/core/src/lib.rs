@@ -8,5 +8,6 @@ pub mod db;
 pub mod engine;
 pub mod feeds;
 pub mod paths;
+pub mod report;
 pub mod whisper;
 pub mod ytdlp;

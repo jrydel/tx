@@ -153,6 +153,77 @@ pub fn save_settings(conn: &Connection, s: &Settings) -> Result<()> {
     Ok(())
 }
 
+/// Free-form settings not shown in the app's Settings form (digest folder, last digest time…).
+pub fn get_value(conn: &Connection, key: &str) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![key],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
+pub fn set_value(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+/// Store an analysis written by the user's own agent (MCP flow). False if the video is unknown.
+pub fn save_analysis(
+    conn: &Connection,
+    id: &str,
+    relevance: i64,
+    verdict: &str,
+    analysis: &str,
+    duration: Option<f64>,
+) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE videos SET status = 'done', relevance = ?1, verdict = ?2, analysis = ?3, \
+         duration = COALESCE(?4, duration), error = NULL, analyzed_at = ?5 WHERE id = ?6",
+        params![
+            relevance.clamp(0, 5),
+            verdict,
+            analysis,
+            duration,
+            now(),
+            id
+        ],
+    )?;
+    Ok(n == 1)
+}
+
+/// The agent couldn't analyze a video (no transcript, etc.); retried up to MAX_ATTEMPTS times.
+pub fn mark_failed(conn: &Connection, id: &str, reason: &str) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE videos SET status = 'error', error = ?1, attempts = attempts + 1 WHERE id = ?2",
+        params![reason, id],
+    )?;
+    Ok(n == 1)
+}
+
+/// Analyzed videos, newest analysis first, optionally only those analyzed after `since`.
+pub fn analyzed(
+    conn: &Connection,
+    since: Option<&str>,
+    min_relevance: i64,
+    limit: i64,
+) -> Result<Vec<Video>> {
+    let sql = format!(
+        "SELECT {VIDEO_COLS} FROM videos v JOIN channels c ON c.id = v.channel_id \
+         WHERE v.status = 'done' AND COALESCE(v.relevance, 0) >= ?1 AND (?2 IS NULL OR v.analyzed_at > ?2) \
+         ORDER BY v.analyzed_at DESC LIMIT ?3"
+    );
+    let rows = conn
+        .prepare(&sql)?
+        .query_map(params![min_relevance, since, limit], video_row)?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
 pub fn upsert_channel(conn: &Connection, id: &str, title: &str) -> Result<()> {
     conn.execute(
         "INSERT INTO channels(id, title) VALUES(?1, ?2) ON CONFLICT(id) DO UPDATE SET title = excluded.title",
