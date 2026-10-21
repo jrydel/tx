@@ -10,13 +10,15 @@ Open source under the MIT license. macOS, Linux and Windows.
 
 ## Install
 
+**macOS (Apple Silicon) and Linux (x86_64):**
+
 ```sh
-# macOS (Apple Silicon) and Linux (x86_64)
 curl -fsSL https://raw.githubusercontent.com/jrydel/tx/master/install.sh | sh
 ```
 
+**Windows (PowerShell):**
+
 ```powershell
-# Windows (PowerShell)
 irm https://raw.githubusercontent.com/jrydel/tx/master/install.ps1 | iex
 ```
 
@@ -36,35 +38,42 @@ The Claude Code plugin also adds the **screen-videos** skill, so Claude follows 
 
 ## Every morning, automatically
 
+Screen new videos every morning at 08:00, with whichever agent is installed:
+
 ```sh
-tx schedule                    # daily at 08:00 with whichever agent is installed
-tx schedule --at 07:30 --agent codex
-tx schedule --every 3h
-tx schedule --status
-tx schedule --off
+tx schedule
 ```
+
+| Instead | Run |
+|---|---|
+| another time or agent | `tx schedule --at 07:30 --agent codex` |
+| every few hours | `tx schedule --every 3h` |
+| see the schedule | `tx schedule --status` |
+| stop it | `tx schedule --off` |
 
 This uses the OS scheduler (a systemd user timer on Linux, a LaunchAgent on macOS, Task Scheduler on Windows) to run `tx run`: your agent checks the watched channels, analyzes new uploads, and tx writes a markdown digest. If something scores at or above your bar (3 by default), you get a desktop notification. Your computer has to be on; a missed run catches up at the next start on Linux and macOS.
 
 **Read it on your phone:** point the digests at a synced folder and open them in any notes app.
 
-```sh
-tx digest --dir ~/Library/Mobile\ Documents/com~apple~CloudDocs/tx    # iCloud Drive
-tx digest --dir ~/OneDrive/tx                                          # OneDrive, Dropbox, Drive…
-```
+| Synced folder | Run |
+|---|---|
+| iCloud Drive (Mac) | `tx digest --dir ~/Library/Mobile\ Documents/com~apple~CloudDocs/tx` |
+| OneDrive, Dropbox, Google Drive… | `tx digest --dir ~/OneDrive/tx` (use your sync folder's path) |
 
 Follow-up questions are just a normal conversation with your AI: "in the Gemini video, what exactly did he say about pricing?"
 
 ## Terminal
 
-```sh
-tx "https://youtu.be/VIDEO_ID"                   # transcript in your pager, [mm:ss] paragraphs
-tx URL -a "what does he say about pricing?"      # one-shot answer via claude -p
-tx URL -c                                        # interactive claude session on the transcript
-tx URL | llm "summarize"                         # pipe anywhere
-tx run                                           # one screening pass now
-tx digest                                        # digest of everything analyzed since the last one
-```
+| Command | Does |
+|---|---|
+| `tx "https://youtu.be/VIDEO_ID"` | transcript in your pager, `[mm:ss]` paragraphs |
+| `tx URL -a "what does he say about pricing?"` | one-shot answer from your agent, streamed as it's written |
+| `tx URL -c` | interactive Claude session on the transcript |
+| `tx URL \| llm "summarize"` | pipe the transcript anywhere |
+| `tx run` | one screening pass now |
+| `tx digest` | digest of everything analyzed since the last one |
+
+Transcripts are cached, so asking more questions about the same video only waits for the agent's answer. `-r` fetches the transcript again.
 
 Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) site (YouTube, X, Vimeo, TikTok, podcasts…). Videos without captions are transcribed locally with [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`-m tiny|base|small|medium|large-v3-turbo`).
 
@@ -85,25 +94,21 @@ Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/s
 
 Only uploads published after you start watching a channel are screened automatically, so adding a channel doesn't trigger a backlog.
 
-## Desktop app (optional)
-
-A desktop app with a feed, filters, film-strip timelines and per-video chat is available from [Releases](https://github.com/jrydel/tx/releases/latest). It shares the same data, so channels and analyses show up in both. It updates itself from GitHub Releases.
-
 ## Data
 
 A SQLite database and digests in `~/.local/share/tx` (Linux), `~/Library/Application Support/tx` (macOS) or `%LOCALAPPDATA%\tx` (Windows). Transcripts are cached in the OS cache folder.
 
 ## Build from source
 
-Needs Rust, CMake and Clang (for whisper.cpp); [bun](https://bun.sh) and [Tauri's dependencies](https://v2.tauri.app/start/prerequisites/) only for the desktop app.
+Needs Rust, CMake and Clang (for whisper.cpp). The binary ends up at `target/release/tx`.
 
 ```sh
-git clone https://github.com/jrydel/tx && cd tx/src-tauri
-cargo build --release -p tx-cli        # target/release/tx
-cargo test --workspace
+git clone https://github.com/jrydel/tx && cd tx && cargo build --release -p tx-cli
 ```
 
-Layout: `src-tauri/core` is the engine, `src-tauri/cli` the `tx` command and MCP server, `plugin/` the Claude Code plugin and skill, `src/` + `src-tauri/src` the optional desktop app. Releases are built by `.github/workflows/release.yml` when a `v*` tag is pushed.
+Run the tests with `cargo test --workspace`.
+
+Layout: `crates/core` is the engine, `crates/cli` the `tx` command and MCP server, `plugin/` the Claude Code plugin and skill. Releases are built by `.github/workflows/release.yml` when a `v*` tag is pushed.
 
 ## License
 

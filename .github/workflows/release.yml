@@ -1,6 +1,6 @@
 name: Release
 
-# Push a tag like v0.2.0 to build installers for Linux, macOS and Windows and publish a release.
+# Push a tag like v0.5.1 to build the tx binary for Linux, macOS and Windows and publish a release.
 on:
   push:
     tags: ["v*"]
@@ -44,11 +44,7 @@ jobs:
 
       - name: Linux build dependencies
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libclang-dev cmake
-
-      - uses: oven-sh/setup-bun@v2
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev cmake
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -56,37 +52,19 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
           key: ${{ matrix.target }}
 
-      - run: bun install --frozen-lockfile
+      - run: cargo test --workspace
 
-      - name: Sidecars (yt-dlp, QuickJS, tx CLI)
-        shell: bash
-        run: bun scripts/sidecars.ts --target ${{ matrix.target }} ${{ matrix.features }}
+      - run: cargo build --release -p tx-cli --target ${{ matrix.target }} ${{ matrix.features }}
 
-      - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Signs installers for the in-app updater; the public half is plugins.updater.pubkey.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: tx ${{ github.ref_name }}
-          releaseBody: |
-            Desktop installers for Linux, macOS (Apple Silicon) and Windows, plus the standalone `tx` CLI.
-            The installers are not code-signed: macOS asks you to allow the app in System Settings → Privacy & Security, Windows SmartScreen asks you to confirm.
-            tx needs [Claude Code](https://claude.com/claude-code) installed and signed in to analyze videos.
-          releaseDraft: false
-          prerelease: false
-          args: --target ${{ matrix.target }} ${{ matrix.features }}
-
-      - name: Attach the standalone CLI
+      - name: Upload to the release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
         run: |
           ext=""; [[ "${{ matrix.target }}" == *windows* ]] && ext=".exe"
-          cp "src-tauri/binaries/tx-${{ matrix.target }}${ext}" "tx-cli-${{ matrix.target }}${ext}"
-          gh release upload "${{ github.ref_name }}" "tx-cli-${{ matrix.target }}${ext}" --clobber
+          cp "target/${{ matrix.target }}/release/tx${ext}" "tx-cli-${{ matrix.target }}${ext}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "tx $TAG" --notes "Install with the one-line installer in the README. tx runs on your computer; your Claude Code, Claude Desktop or Codex (ChatGPT) does the analysis." || true
+          gh release upload "$TAG" "tx-cli-${{ matrix.target }}${ext}" --clobber

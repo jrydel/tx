@@ -1,16 +1,5 @@
-node_modules
-dist
-*.local
+/target
 *.log
-
-# Rust / Tauri
-src-tauri/target
-src-tauri/gen/schemas
-# Bundled tools, downloaded by scripts/fetch-sidecars.ts
-src-tauri/binaries/*
-!src-tauri/binaries/.gitkeep
-
-.vscode/*
-!.vscode/extensions.json
 .idea
+.vscode
 .DS_Store
