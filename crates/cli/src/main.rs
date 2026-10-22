@@ -51,6 +51,15 @@ struct Cli {
 enum Command {
     /// Set tx up step by step: your AI apps, what you want to learn, what to follow, a daily brief
     Onboard,
+    /// Start over as a new user: forget your profile and what you follow, turn off the daily brief
+    Reset {
+        /// Also delete every analysis, digest and cached transcript
+        #[arg(long)]
+        all: bool,
+        /// Don't ask for confirmation
+        #[arg(long)]
+        yes: bool,
+    },
     /// MCP server over stdio, for Claude Code, Claude Desktop, Codex and other MCP clients
     Mcp {
         /// Data folder to use (default: the OS data folder, or $TX_DATA_DIR)
@@ -142,6 +151,10 @@ fn page(text: &str) -> Result<()> {
 
 async fn run(cli: Cli) -> Result<i32> {
     match cli.command {
+        Some(Command::Reset { all, yes }) => {
+            onboard::reset(all, yes)?;
+            return Ok(0);
+        }
         Some(Command::Onboard) => {
             onboard::run().await?;
             return Ok(0);
@@ -247,15 +260,18 @@ async fn run(cli: Cli) -> Result<i32> {
         None => {}
     }
     let Some(url) = cli.url else {
-        // First use: a bare `tx` walks through setup until it's done.
+        // A bare `tx` walks through setup until it's done, then shows where you stand.
         use std::io::IsTerminal;
-        let db: db::Db = std::sync::Mutex::new(db::connect()?);
-        if std::io::stdin().is_terminal() && guide::needs_setup(&db)? {
-            drop(db);
-            onboard::run().await?;
-            return Ok(0);
+        let needs_setup = guide::needs_setup(&std::sync::Mutex::new(db::connect()?))?;
+        if needs_setup && !std::io::stdin().is_terminal() {
+            anyhow::bail!("tx isn't set up yet; run `tx` in a terminal to set it up");
         }
-        anyhow::bail!("pass a video URL, or run `tx onboard` to change your setup (see tx --help)");
+        if needs_setup {
+            onboard::run().await?;
+        } else {
+            onboard::home()?;
+        }
+        return Ok(0);
     };
     let progress: ytdlp::Progress = Box::new(|m| eprintln!("tx: {m}"));
     let (t, cache_path) = ytdlp::load(

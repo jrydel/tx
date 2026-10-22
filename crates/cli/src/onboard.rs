@@ -94,6 +94,167 @@ fn note(text: &str) {
     println!("  {}", style(text).dim());
 }
 
+/// "Codex", "Codex or Claude Code", "Codex, Claude Code or Claude Desktop"; "your AI app" if none.
+fn either(apps: &[&str]) -> String {
+    match apps {
+        [] => "your AI app".into(),
+        [one] => one.to_string(),
+        [rest @ .., last] => format!("{} or {last}", rest.join(", ")),
+    }
+}
+
+/// AI apps on this computer that have tx: registered directly or through the tx plugin.
+fn connected_apps() -> Vec<&'static str> {
+    let mut apps = vec![];
+    let codex = agents::codex_home()
+        .ok()
+        .and_then(|h| std::fs::read_to_string(h.join("config.toml")).ok())
+        .and_then(|t| t.parse::<toml_edit::DocumentMut>().ok())
+        .is_some_and(|c| {
+            c.get("mcp_servers").and_then(|s| s.get("tx")).is_some()
+                || c.get("plugins")
+                    .and_then(|p| p.get("tx@tx"))
+                    .and_then(|t| t.get("enabled"))
+                    .and_then(|e| e.as_bool())
+                    == Some(true)
+        });
+    let json = |path: Option<std::path::PathBuf>| {
+        path.and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .unwrap_or_default()
+    };
+    let claude_code =
+        !json(dirs::home_dir().map(|h| h.join(".claude.json")))["mcpServers"]["tx"].is_null();
+    let claude_desktop = !json(agents::claude_desktop_config())["mcpServers"]["tx"].is_null();
+    for (on, name) in [
+        (codex, "Codex"),
+        (claude_code, "Claude Code"),
+        (claude_desktop, "Claude Desktop"),
+    ] {
+        if on {
+            apps.push(name);
+        }
+    }
+    apps
+}
+
+/// What a bare `tx` shows once setup is done: you use tx inside your AI app, and where you stand.
+pub fn home() -> Result<()> {
+    let conn = db::connect()?;
+    let profile = db::get_settings(&conn)?.profile;
+    let channels = db::channels(&conn)?;
+    let waiting = db::pending(&conn)?.len();
+    drop(conn);
+    let watched: Vec<&db::Channel> = channels.iter().filter(|c| c.enabled).collect();
+    let shows = watched.iter().filter(|c| c.podcast).count();
+    let apps = connected_apps();
+    let app = either(&apps);
+    let tick = |t: String| format!("{} {t}", style("✓").green());
+    let open = |t: String| format!("{} {t}", style("○").dim());
+    let short: String = profile.chars().take(60).collect();
+    let mut lines = vec![
+        format!(
+            "tx is set up. Use it in {}: start a new chat and type",
+            style(&app).bold()
+        ),
+        format!("  {}", style("Show me my tx brief").bold()),
+        String::new(),
+        tick(format!(
+            "Scored for: {short}{}",
+            if profile.chars().count() > 60 {
+                "…"
+            } else {
+                ""
+            }
+        )),
+        tick(match shows {
+            0 => format!("Following {} channels", watched.len()),
+            s => format!("Following {} channels and {s} podcasts", watched.len() - s),
+        }),
+        if schedule::scheduled() {
+            tick("A brief every morning".into())
+        } else {
+            open(format!(
+                "No daily brief yet {}",
+                style("(tx schedule)").dim()
+            ))
+        },
+    ];
+    if waiting > 0 {
+        lines.push(open(format!(
+            "{waiting} new videos waiting {}",
+            style("(ask in your app, or tx run)").dim()
+        )));
+    }
+    if apps.is_empty() {
+        lines.push(open(format!(
+            "Not connected to an AI app yet {}",
+            style("(tx onboard)").dim()
+        )));
+    }
+    println!();
+    card("tx", &lines);
+    println!();
+    for (cmd, what) in [
+        ("tx onboard", "change your setup"),
+        ("tx <link>", "transcript of any video or episode"),
+        ("tx run", "screen new uploads now, in this terminal"),
+        ("tx reset", "start over as a new user"),
+        ("tx --help", "everything else"),
+    ] {
+        println!("  {:<12} {}", style(cmd).bold(), style(what).dim());
+    }
+    println!();
+    Ok(())
+}
+
+/// Start over: forget the profile and what's followed, and turn off the daily brief, so the next
+/// `tx` runs setup again. With `all`, also delete every analysis, digest and cached transcript.
+pub fn reset(all: bool, yes: bool) -> Result<()> {
+    let what = if all {
+        "your profile, what you follow, the daily brief, and every analysis, digest and cached transcript"
+    } else {
+        "your profile, what you follow and the daily brief (analyses and transcripts are kept)"
+    };
+    println!("This resets {what}.");
+    if !yes {
+        if !std::io::stdin().is_terminal() {
+            bail!("run it in a terminal to confirm, or pass --yes");
+        }
+        if !Confirm::with_theme(&theme())
+            .with_prompt("Reset tx?")
+            .default(false)
+            .interact()?
+        {
+            return Ok(());
+        }
+    }
+    if schedule::scheduled() {
+        schedule::uninstall()?;
+    }
+    let data = tx_core::paths::data_dir();
+    if all {
+        // Tools tx downloaded (yt-dlp, whisper models) stay; they're not your data.
+        for f in ["tx.db", "tx.db-wal", "tx.db-shm"] {
+            let _ = std::fs::remove_file(data.join(f));
+        }
+        let _ = std::fs::remove_dir_all(data.join("digests"));
+        let _ = std::fs::remove_dir_all(tx_core::paths::cache_dir());
+    } else {
+        let conn = db::connect()?;
+        let mut s = db::get_settings(&conn)?;
+        s.profile.clear();
+        db::save_settings(&conn, &s)?;
+        conn.execute("UPDATE channels SET enabled = 0, enabled_at = NULL", [])?;
+    }
+    println!(
+        "{} Reset. Run {} to set it up again.",
+        style("✓").green(),
+        style("tx").bold()
+    );
+    Ok(())
+}
+
 pub async fn run() -> Result<()> {
     if !std::io::stdin().is_terminal() {
         bail!("tx onboard asks questions, so run it in a terminal");
@@ -137,11 +298,7 @@ pub async fn run() -> Result<()> {
     if let Some(at) = &daily {
         lines.push(tick(format!("A brief every day at {at}")));
     }
-    let app = if apps.is_empty() {
-        "your AI app".to_string()
-    } else {
-        apps.join(" or ")
-    };
+    let app = either(&apps);
     lines.push(String::new());
     lines.push(format!(
         "Quit {app} completely, open it again, start a new chat and type:"

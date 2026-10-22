@@ -57,7 +57,7 @@ This installs one `tx` program. Then type `tx` to set it up with you, in four sh
 3. **What to follow**: import your YouTube subscriptions (your AI pre-picks the ones that fit you), a Google Takeout export, a podcast app's OPML file, or add channels and podcasts by name.
 4. **Daily brief**: every morning new uploads are screened and a notification says what's worth your time.
 
-Run `tx onboard` any time to change something. Restart your AI app afterwards so it loads tx.
+Run `tx onboard` any time to change something, or `tx reset` to start over as a new user (`tx reset --all` also deletes your analyses and transcripts). Once you're set up, `tx` alone shows where you stand. Restart your AI app afterwards so it loads tx.
 
 ### 2. Use it in your AI app
 
