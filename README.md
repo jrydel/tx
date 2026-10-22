@@ -8,7 +8,31 @@ tx watches the YouTube channels and podcasts you pick. Every new video and episo
 
 Open source under the MIT license. macOS, Linux and Windows.
 
-## Get started
+## TL;DR: get it running
+
+You need the **Codex** (ChatGPT) or **Claude** app, signed in.
+
+**1.** Open a terminal (on a Mac: <kbd>⌘</kbd> <kbd>Space</kbd>, type *Terminal*, <kbd>Enter</kbd>) and paste:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jrydel/tx/master/install.sh | sh
+```
+
+On Windows, paste this into PowerShell instead:
+
+```powershell
+irm https://raw.githubusercontent.com/jrydel/tx/master/install.ps1 | iex
+```
+
+**2.** Answer its four questions (about 2 minutes): which AI app, what you want to learn, what to follow, and whether you want a morning brief.
+
+**3.** Quit your AI app completely, open it again, start a new chat and type:
+
+> Show me my tx brief
+
+That's it. From then on, ask for your brief whenever you like, or paste any video link and say "TL;DR this".
+
+## Get started, in detail
 
 You need **Claude Code**, **Claude Desktop** or **Codex** (the ChatGPT desktop app or CLI), signed in with your subscription.
 
