@@ -15,6 +15,7 @@ if (($userPath -split ";") -notcontains $dir) {
 }
 Write-Host "Installed $(& $exe --version) to $exe"
 Write-Host ""
-Write-Host "Next:"
-Write-Host "  tx setup claude      # use tx from Claude Code (or: codex, claude-desktop)"
-Write-Host "  tx schedule          # screen new videos every morning at 08:00"
+Write-Host "Next, open a new terminal and connect tx to your AI (then restart that app):"
+Write-Host "  tx setup codex            # Codex: ChatGPT desktop app or CLI"
+Write-Host "  tx setup claude           # Claude Code"
+Write-Host "  tx setup claude-desktop   # Claude Desktop"

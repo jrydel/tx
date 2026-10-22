@@ -8,33 +8,68 @@ tx watches the YouTube channels you pick. Every new upload is transcribed and sc
 
 Open source under the MIT license. macOS, Linux and Windows.
 
-## Install
+## Get started
 
-**macOS (Apple Silicon) and Linux (x86_64):**
+You need **Claude Code**, **Claude Desktop** or **Codex** (the ChatGPT desktop app or CLI), signed in with your subscription.
+
+### 1. Install tx
+
+On macOS (Apple Silicon) or Linux (x86_64), run in a terminal:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/jrydel/tx/master/install.sh | sh
 ```
 
-**Windows (PowerShell):**
+On Windows, run in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/jrydel/tx/master/install.ps1 | iex
 ```
 
-It installs one `tx` binary. On first use it downloads the official [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [QuickJS](https://github.com/quickjs-ng/quickjs) builds into its data folder and keeps yt-dlp current.
+This installs one `tx` program. Open a new terminal afterwards so it's on your PATH.
 
-## Connect your AI
+### 2. Connect it to your AI
 
-| You have | Run | Then ask |
-|---|---|---|
-| **Claude Code** | `tx setup claude`, or install the plugin: `/plugin marketplace add jrydel/tx` then `/plugin install tx@tx` | "watch @fireship and @t3dotgg in tx", "screen my new videos" |
-| **Claude Desktop** | `tx setup claude-desktop`, then restart Claude | same |
-| **ChatGPT** (Codex app or [Codex CLI](https://github.com/openai/codex)) | `codex plugin marketplace add jrydel/tx` then `codex plugin add tx@tx` (or `tx setup codex`); restart the Codex app | same, in Codex |
+Run the line for the AI you use:
 
-The first time, tell it who you are and what you want to learn ("I'm a backend engineer building LLM features; I want concrete agent and eval techniques; skip hype"). tx stores that profile and scores every video against it.
+| You use | Run |
+|---|---|
+| Codex (ChatGPT app or CLI) | `tx setup codex` |
+| Claude Code | `tx setup claude` |
+| Claude Desktop | `tx setup claude-desktop` |
 
-The Claude Code plugin also adds the **screen-videos** skill, so Claude follows the same procedure every time.
+Then restart that app if it's open. This adds tx's tools and the **screen-videos** skill.
+
+### 3. Tell it what you want and which channels to watch
+
+Start a new chat and say, in your own words:
+
+> Use tx. I'm a backend engineer building LLM features; I want concrete agent and eval techniques and notable model launches; skip hype. Watch @fireship and @t3dotgg.
+
+Then, whenever you like:
+
+> Use tx to check my channels for new videos and analyze them for me.
+
+Only videos uploaded after you start watching a channel are analyzed, so nothing happens until a channel posts something new. To try it right away: "Use tx to analyze https://youtu.be/VIDEO_ID for me."
+
+### 4. Optional: every morning, automatically
+
+```sh
+tx schedule
+```
+
+See [Every morning](#every-morning-automatically) for options and reading digests on your phone.
+
+<details>
+<summary>Prefer plugin marketplaces?</summary>
+
+Instead of `tx setup`, you can install tx as a plugin (it needs `tx` on the PATH your AI app sees):
+
+- **Codex:** run `codex plugin marketplace add jrydel/tx`, then `codex plugin add tx@tx`
+- **Claude Code:** in a session, run `/plugin marketplace add jrydel/tx`, then `/plugin install tx@tx`
+
+Use either the plugin or `tx setup`, not both.
+</details>
 
 ## Every morning, automatically
 

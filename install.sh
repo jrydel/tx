@@ -25,7 +25,8 @@ esac
 
 cat <<EOF
 
-Next:
-  tx setup claude           # use tx from Claude Code (or: codex, claude-desktop)
-  tx schedule               # screen new videos every morning at 08:00
+Next, connect tx to your AI (run the one you use, then restart that app):
+  tx setup codex            # Codex: ChatGPT desktop app or CLI
+  tx setup claude           # Claude Code
+  tx setup claude-desktop   # Claude Desktop
 EOF

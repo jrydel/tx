@@ -107,15 +107,28 @@ fn claude_desktop_config() -> Option<PathBuf> {
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum Target {
-    /// Claude Code: `claude mcp add --scope user`
+    /// Claude Code (CLI and IDE extensions)
     Claude,
-    /// Codex CLI: `codex mcp add`
+    /// Codex (desktop app, CLI and IDE extensions)
     Codex,
-    /// Claude Desktop app: claude_desktop_config.json
+    /// Claude Desktop app
     ClaudeDesktop,
 }
 
-/// Register `tx mcp` so the agent can use tx in normal conversations.
+/// Copy the screen-videos skill where the agent looks for personal skills.
+fn install_skill(agent_home: &str) -> Result<PathBuf> {
+    let dir = dirs::home_dir()
+        .context("no home dir")?
+        .join(agent_home)
+        .join("skills/screen-videos");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("SKILL.md");
+    std::fs::write(&path, SKILL)?;
+    Ok(path)
+}
+
+/// Register `tx mcp` (by absolute path, so desktop apps with a minimal PATH find it) and install
+/// the screening skill, so the agent can use tx in normal conversations.
 pub fn setup(target: Target) -> Result<()> {
     let tx = exe()?.display().to_string();
     match target {
@@ -147,9 +160,18 @@ pub fn setup(target: Target) -> Result<()> {
             if !ok {
                 bail!("{name} mcp add failed");
             }
-            println!(
-                "tx is now available in {name}. Try asking: \"watch @fireship in tx, then screen my new videos\"."
-            );
+            let skill = install_skill(if matches!(target, Target::Claude) {
+                ".claude"
+            } else {
+                ".codex"
+            })?;
+            println!("Installed the screen-videos skill: {}", skill.display());
+            let restart = if matches!(target, Target::Codex) {
+                " Restart the Codex app if it's open."
+            } else {
+                ""
+            };
+            println!("Done: tx is available in {name}.{restart}");
         }
         Target::ClaudeDesktop => {
             let path =
