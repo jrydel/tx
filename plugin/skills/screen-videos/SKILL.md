@@ -1,16 +1,17 @@
 ---
 name: screen-videos
-description: Check the YouTube channels watched in tx for new uploads and analyze each against the user's profile (0-5 score, TL;DR, timestamped takeaways, whether to watch), then write a digest. Use when the user asks what's new or worth watching from their channels, wants a video TL;DR, or when running on a schedule.
+description: Check the YouTube channels and podcasts watched in tx for new uploads and analyze each against the user's profile (0-5 score, TL;DR, timestamped takeaways, whether to watch), then write a digest. Use when the user asks what's new or worth watching or hearing from their channels and shows, wants a video or episode TL;DR, or when running on a schedule.
 ---
 
 # Screen new videos with tx
 
-tx (MCP server `tx`) fetches YouTube data on this computer; you do the analysis. Follow these steps.
+tx (MCP server `tx`) fetches YouTube videos and podcast episodes on this computer; you do the analysis. "Video" below means either. Follow these steps.
 
 1. Call `get_profile`. It says who the user is and what they want to learn. If it is empty and you can ask the user, ask for 2-3 sentences and save them with `set_profile`; otherwise judge usefulness for a curious technical generalist.
 2. Call `check_new_videos`. It checks watched channels and returns uploads waiting for analysis. If no channels are watched, offer to import the user's YouTube subscriptions (see Choosing channels) or to watch channels they name (`watch_channel` takes `@handle`s, channel URLs, or video URLs), and stop.
 3. For each waiting video, oldest first, at most 15 per run:
-   - Call `get_transcript` with the video id. Long transcripts come in parts; fetch every part.
+   - Podcast episodes (`kind` podcast) without `transcript_published` have to be transcribed on the user's computer, which takes minutes for a long episode. Judge them by title and `show_notes` first: if one clearly doesn't fit the profile, call `pass_video` with a one-line reason instead of transcribing it. When in doubt, transcribe.
+   - Call `get_transcript` with the video id. Long transcripts come in parts; fetch every part. If it replies that it's still transcribing, continue with other videos and call it again later; keep going until every video is done.
    - If there is no usable transcript, call `skip_video` with the reason and move on.
    - Otherwise call `save_analysis` with:
      - `relevance` 0-5 for this person: 0 irrelevant, 1 barely, 2 some general interest, 3 useful, 4 clearly valuable, 5 must-watch.
@@ -28,7 +29,9 @@ When the user asks for a TL;DR of specific or recent videos ("the latest Fireshi
 2. Videos already analyzed (status `done`) need no new analysis unless the user asks to redo them. For each other one, `get_transcript` and `save_analysis` exactly as in step 3 above, so it's stored and never redone.
 3. Call `show_videos` with their ids, then reply in at most two sentences.
 
-## Choosing channels
+## Choosing channels and podcasts
+
+To add podcasts, call `find_podcasts` with the show's name and `watch_channel` with the chosen `feed_url`s. If the user has many podcast subscriptions, ask them to export an OPML file from their podcast app and import it with `import_subscriptions` `file`, then continue with step 2 below.
 
 When the user wants their YouTube subscriptions in tx ("import my subscriptions", "use the channels I follow"):
 

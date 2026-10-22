@@ -66,7 +66,11 @@
   .meta b { color: var(--muted); font-weight: 600; }
 
   .thumb { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: var(--sunk); }
-  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* Podcast artwork is square: show all of it, centered in the 16:9 frame. */
+  .thumb.art img { object-fit: contain; }
+  /* Behind the image, and all that's left when there is none or it fails to load: the show's initial. */
+  .thumb .initial { position: absolute; inset: 0; display: grid; place-items: center; font-size: 22px; font-weight: 700; color: var(--faint); }
   a.thumb img { transition: transform .25s; }
   a.thumb:hover img { transform: scale(1.04); }
   .thumb .len { position: absolute; right: 4px; bottom: 4px; background: #000c; color: #fff; font: 600 10.5px/1.5 var(--mono); padding: 0 4px; border-radius: 3px; }
@@ -201,8 +205,12 @@
   const stamp = (at, url) => el(url ? "a" : "span", { class: "t", "data-href": url, title: url ? `Play from ${at}` : null }, at);
 
   function thumb(v, link) {
-    return el(link ? "a" : "span", { class: "thumb", "data-href": link ? v.url : null, title: link ? "Play on YouTube" : null },
-      el("img", { src: v.thumbnail, alt: "", loading: "lazy" }),
+    const img = v.thumbnail && el("img", { src: v.thumbnail, alt: "", loading: "lazy" });
+    if (img) img.addEventListener("error", () => img.remove());
+    const title = link ? (v.podcast ? "Open the episode" : "Play on YouTube") : null;
+    return el(link ? "a" : "span", { class: `thumb${v.podcast ? " art" : ""}`, "data-href": link ? v.url : null, title },
+      el("span", { class: "initial", "aria-hidden": "true" }, (v.channel || "?").trim().charAt(0).toUpperCase()),
+      img,
       v.length && el("span", { class: "len" }, v.length));
   }
 
@@ -268,7 +276,11 @@
     const videos = data.videos;
     const n = videos.length;
     const channels = [...new Set(videos.map((v) => v.channel))];
-    const from = channels.length > 2 ? `${channels.length} channels` : channels.join(" and ");
+    const plural = (k, word) => `${k} ${word}${k > 1 ? "s" : ""}`;
+    const episodes = videos.filter((v) => v.podcast).length;
+    const what = [n - episodes && plural(n - episodes, "video"), episodes && plural(episodes, "episode")].filter(Boolean).join(" and ");
+    const sources = !episodes ? "channels" : episodes === n ? "shows" : "channels and shows";
+    const from = channels.length > 2 ? `${channels.length} ${sources}` : channels.join(" and ");
     const times = videos.map((v) => Date.parse(v.published)).filter((t) => !isNaN(t));
     const span = times.length && released(new Date(Math.min(...times)).toISOString(), true);
     const end = times.length && released(new Date(Math.max(...times)).toISOString(), true);
@@ -277,8 +289,8 @@
     try { today = new Date().toLocaleDateString(locale, { weekday: "short", day: "numeric", month: "short", timeZone }); }
     catch { today = new Date().toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }); }
     const head = el("header", { class: "head" },
-      el("div", { class: "title" }, el("h1", {}, "Your video brief", el("span", {}, today)),
-        el("div", { class: "side" }, el("span", { class: "scope" }, `${n} video${n > 1 ? "s" : ""} from ${from}${when}`), expand)),
+      el("div", { class: "title" }, el("h1", {}, "Your brief", el("span", {}, today)),
+        el("div", { class: "side" }, el("span", { class: "scope" }, `${what} from ${from}${when}`), expand)),
       data.profile && el("p", { class: "for", title: data.profile }, el("b", {}, "Scored for"), data.profile));
     if (n === 1) {
       root.className = "cap";

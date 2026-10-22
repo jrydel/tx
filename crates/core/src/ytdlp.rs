@@ -221,6 +221,19 @@ pub async fn fetch(
     })
 }
 
+/// Where `load` caches the transcript of `url` for these options.
+pub fn cache_path(url: &str, lang: Option<&str>, whisper: bool, model: &str) -> PathBuf {
+    let mode = if whisper {
+        format!("whisper:{model}")
+    } else {
+        "auto".into()
+    };
+    let key = sha1_smol::Sha1::from(format!("{url}|{}|{mode}", lang.unwrap_or("None")))
+        .digest()
+        .to_string();
+    paths::cache_dir().join(format!("{}.json", &key[..16]))
+}
+
 /// Cached transcript for `url`; returns it with its cache path (.json).
 pub async fn load(
     url: &str,
@@ -230,15 +243,7 @@ pub async fn load(
     refresh: bool,
     progress: &Progress,
 ) -> Result<(Transcript, PathBuf)> {
-    let mode = if whisper {
-        format!("whisper:{model}")
-    } else {
-        "auto".into()
-    };
-    let key = sha1_smol::Sha1::from(format!("{url}|{}|{mode}", lang.unwrap_or("None")))
-        .digest()
-        .to_string();
-    let path = paths::cache_dir().join(format!("{}.json", &key[..16]));
+    let path = cache_path(url, lang, whisper, model);
     if !refresh
         && let Ok(bytes) = tokio::fs::read(&path).await
         && let Ok(t) = serde_json::from_slice(&bytes)

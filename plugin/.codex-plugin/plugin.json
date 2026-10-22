@@ -1,7 +1,7 @@
 {
   "name": "tx",
-  "version": "0.7.4",
-  "description": "Watch YouTube channels and get TL;DRs of new uploads scored against what you want to learn. tx fetches transcripts on your computer; Codex does the analysis.",
+  "version": "0.8.0",
+  "description": "Watch YouTube channels and podcasts and get TL;DRs of new uploads scored against what you want to learn. tx fetches transcripts on your computer; Codex does the analysis.",
   "author": { "name": "Jiří Rýdel", "url": "https://github.com/jrydel" },
   "license": "MIT",
   "mcpServers": "./.mcp.json",

@@ -3,19 +3,27 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tx_core::captions::Transcript;
 use tx_core::db::{self, Db};
 use tx_core::report::{self, AgentAnalysis};
-use tx_core::{captions, feeds, ytdlp};
+use tx_core::{captions, feeds, podcasts, ytdlp};
 
 /// Transcript parts stay under typical MCP tool-output limits (~25k tokens).
 const PART_CHARS: usize = 60_000;
 
-const INSTRUCTIONS: &str = "tx watches YouTube channels on this computer. To screen new uploads: get_profile, \
-check_new_videos, then for each video get_transcript and save_analysis (or skip_video), then write_digest. \
-For a channel's latest videos use get_profile, then recent_videos. Every analysis is for the profile's owner. \
-Show results to the user with show_videos. The screen-videos skill has the full procedure and scoring rubric.";
+const INSTRUCTIONS: &str = "tx watches YouTube channels and podcasts on this computer. To screen new uploads: get_profile, \
+check_new_videos, then for each video or episode get_transcript and save_analysis (or skip_video, or pass_video for a \
+podcast episode that clearly doesn't fit from its title and notes), then write_digest. For a channel's or show's latest \
+use get_profile, then recent_videos. Every analysis is for the profile's owner. Show results to the user with \
+show_videos. The screen-videos skill has the full procedure and scoring rubric.";
+
+/// How long get_transcript waits for a transcription before telling the agent to come back; under
+/// the tool-call timeouts of common hosts, while the transcription keeps running.
+const TRANSCRIPT_WAIT: Duration = Duration::from_secs(40);
 
 /// MCP Apps: hosts that render them (Claude Desktop, claude.ai, the Codex app) show `show_videos`
 /// results as cards from this page; others get markdown.
@@ -25,26 +33,28 @@ const CARDS_MIME: &str = "text/html;profile=mcp-app";
 const CARDS_HTML: &str = include_str!("videos.html");
 
 fn tools() -> Value {
-    let video_id = json!({ "type": "string", "description": "Video id from check_new_videos, recent_videos or feed" });
+    let video_id = json!({ "type": "string", "description": "Video or episode id from check_new_videos, recent_videos or feed" });
     let stamp = json!({ "type": "string", "description": "Timestamp mm:ss or h:mm:ss from the transcript" });
     json!([
         { "name": "get_profile", "description": "Who the user is and what they want to learn, plus the score that counts as worth their time.",
           "inputSchema": { "type": "object", "properties": {} } },
         { "name": "set_profile", "description": "Save the user's description of who they are and what they want to learn.",
           "inputSchema": { "type": "object", "properties": { "profile": { "type": "string" } }, "required": ["profile"] } },
-        { "name": "watch_channel", "description": "Start watching YouTube channels. Only uploads published from now on are analyzed automatically; recent_videos still lists earlier ones.",
-          "inputSchema": { "type": "object", "properties": { "channels": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Each an @handle, channel URL, channel id (from list_channels), or a URL of one of its videos" } }, "required": ["channels"] } },
+        { "name": "watch_channel", "description": "Start watching YouTube channels and podcasts. Only uploads published from now on are analyzed automatically; recent_videos still lists earlier ones.",
+          "inputSchema": { "type": "object", "properties": { "channels": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Each an @handle, channel URL, channel or show id (from list_channels), a URL of one of its videos, or a podcast feed URL (from find_podcasts)" } }, "required": ["channels"] } },
+        { "name": "find_podcasts", "description": "Search Apple's podcast directory by name or topic; returns shows with their feed URLs for watch_channel.",
+          "inputSchema": { "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] } },
         { "name": "unwatch_channel", "description": "Stop watching a channel.",
           "inputSchema": { "type": "object", "properties": { "channel_id": { "type": "string" } }, "required": ["channel_id"] } },
-        { "name": "list_channels", "description": "Channels tx knows about.",
+        { "name": "list_channels", "description": "YouTube channels and podcasts tx knows about.",
           "inputSchema": { "type": "object", "properties": { "watching_only": { "type": "boolean", "default": true } } } },
-        { "name": "import_subscriptions", "description": "Import the user's YouTube subscriptions, either from a browser signed in to YouTube on this computer or from a Google Takeout export. Imported channels are not watched until the user picks them.",
+        { "name": "import_subscriptions", "description": "Import the user's YouTube subscriptions (from a browser signed in to YouTube on this computer, or a Google Takeout export) or podcast subscriptions (an OPML file exported from their podcast app). Imported channels and shows are not watched until the user picks them.",
           "inputSchema": { "type": "object", "properties": {
             "browser": { "type": "string", "description": "chrome, firefox, edge, safari, brave; another profile as chrome:Profile 2" },
-            "file": { "type": "string", "description": "Path to a Google Takeout .zip or its subscriptions.csv" } } } },
-        { "name": "check_new_videos", "description": "Check watched channels for new uploads and list every video waiting for analysis.",
+            "file": { "type": "string", "description": "Path to a Google Takeout .zip or its subscriptions.csv, or a podcast app's .opml export" } } } },
+        { "name": "check_new_videos", "description": "Check watched channels and podcasts for new uploads and list everything waiting for analysis. Podcast episodes include their show notes and whether a transcript is published.",
           "inputSchema": { "type": "object", "properties": {} } },
-        { "name": "get_transcript", "description": "Timestamped transcript ([mm:ss] paragraphs) of a tx video id or any video URL (YouTube, X, Vimeo…). Long ones come in parts.",
+        { "name": "get_transcript", "description": "Timestamped transcript ([mm:ss] paragraphs) of a tx video or episode id, or any video URL (YouTube, X, Vimeo…). Long ones come in parts. Audio without captions or a published transcript is transcribed on this computer, which can take minutes: if it isn't ready, the reply says so and you call again later.",
           "inputSchema": { "type": "object", "properties": { "video": { "type": "string", "description": "Video id or URL" }, "part": { "type": "integer", "minimum": 1, "default": 1 } }, "required": ["video"] } },
         { "name": "save_analysis", "description": "Store your analysis of a video in tx (any video from check_new_videos, recent_videos or feed), so it shows in feed, show_videos and the digest and is never redone.",
           "inputSchema": { "type": "object", "required": ["video_id", "relevance", "verdict", "tldr", "takeaways", "watch"], "properties": {
@@ -58,6 +68,8 @@ fn tools() -> Value {
                 "advice": { "type": "string", "enum": ["skip", "skim", "watch"] }, "from": stamp, "to": stamp, "reason": { "type": "string" } } } } } },
         { "name": "skip_video", "description": "Give up on a video for now (e.g. no usable transcript). It is retried on later runs, up to 3 attempts.",
           "inputSchema": { "type": "object", "properties": { "video_id": video_id, "reason": { "type": "string" } }, "required": ["video_id", "reason"] } },
+        { "name": "pass_video", "description": "Pass on a podcast episode whose title and show notes clearly don't fit the profile, without transcribing it. It isn't retried or shown.",
+          "inputSchema": { "type": "object", "properties": { "video_id": video_id, "reason": { "type": "string", "description": "One line: why it doesn't fit" } }, "required": ["video_id", "reason"] } },
         { "name": "recent_videos", "description": "Latest uploads of channels tx knows, newest first, including ones published before watching started and whether each is analyzed. Use it for \"the latest videos from X\"; analyze any of them with get_transcript and save_analysis.",
           "inputSchema": { "type": "object", "properties": { "channel": { "type": "string", "description": "Channel id or part of its name (see list_channels); omit for all channels" }, "limit": { "type": "integer", "default": 10 } } } },
         { "name": "feed", "description": "Videos analyzed recently, best first within the time window.",
@@ -86,24 +98,92 @@ fn video_json(v: &db::Video) -> Value {
         .as_deref()
         .map(|a| report::section(a, "TL;DR"))
         .unwrap_or_default();
-    json!({ "id": v.id, "title": v.title, "channel": v.channel, "published": v.published, "url": v.url,
+    let mut j = json!({ "id": v.id, "title": v.title, "channel": v.channel, "published": v.published, "url": v.url,
             "status": v.status, "relevance": v.relevance, "verdict": v.verdict, "tldr": tldr,
-            "length": v.duration.map(captions::fmt_time), "error": v.error })
+            "length": v.duration.map(captions::fmt_time), "error": v.error });
+    if v.podcast {
+        // What the agent needs to judge an episode before spending minutes transcribing it.
+        j["kind"] = json!("podcast");
+        j["show_notes"] = json!(v.description);
+        j["transcript_published"] = json!(v.transcript_url.is_some());
+    }
+    j
 }
 
-/// The transcript URL for a tx video id, or the argument itself if it is a URL.
-fn resolve(db: &Db, video: &str) -> Result<String> {
-    if video.contains("://") {
-        return Ok(video.to_string());
+type Job = tokio::sync::watch::Receiver<Option<Result<Transcript, String>>>;
+/// Transcripts being fetched or transcribed, by video id or URL. A job outlives the tool call that
+/// started it, so a long local transcription never hits the host's tool-call timeout.
+static JOBS: LazyLock<Mutex<HashMap<String, Job>>> = LazyLock::new(Default::default);
+
+/// Transcript of a tx video or episode id, or of a URL; None while it's still being made after
+/// TRANSCRIPT_WAIT. Episodes use the transcript their feed publishes when there is one.
+async fn transcript(db: &Db, video: &str) -> Result<Option<Transcript>> {
+    let model = db::get_settings(&db.lock().unwrap())?.model;
+    let v = if video.contains("://") {
+        None
+    } else {
+        Some(
+            db::video(&db.lock().unwrap(), video)?
+                .with_context(|| format!("no video {video} in tx; pass a URL instead"))?,
+        )
+    };
+    let url = v
+        .as_ref()
+        .map_or_else(|| video.to_string(), |v| v.url.clone());
+    // An episode's audio URL tells yt-dlp nothing about it; the feed does.
+    let names = v
+        .as_ref()
+        .filter(|v| v.podcast)
+        .map(|v| (v.title.clone(), v.channel.clone(), v.duration));
+    let mut rx = JOBS
+        .lock()
+        .unwrap()
+        .entry(video.to_string())
+        .or_insert_with(|| {
+            let (tx, rx) = tokio::sync::watch::channel(None);
+            tokio::spawn(async move {
+                let got = async {
+                    let cached = ytdlp::cache_path(&url, None, false, &model);
+                    if let Some(v) = v.filter(|v| v.transcript_url.is_some() && !cached.exists()) {
+                        match podcasts::published_transcript(&v).await {
+                            Ok(Some(t)) => {
+                                tokio::fs::write(&cached, serde_json::to_vec(&t)?).await?;
+                                return Ok(t);
+                            }
+                            Ok(None) => {}
+                            Err(e) => eprintln!(
+                                "tx: published transcript failed, transcribing instead: {e:#}"
+                            ),
+                        }
+                    }
+                    let silent: ytdlp::Progress = Box::new(|_| {});
+                    anyhow::Ok(
+                        ytdlp::load(&url, None, false, &model, false, &silent)
+                            .await?
+                            .0,
+                    )
+                }
+                .await;
+                let _ = tx.send(Some(got.map_err(|e| format!("{e:#}"))));
+            });
+            rx
+        })
+        .clone();
+    let Ok(done) = tokio::time::timeout(TRANSCRIPT_WAIT, rx.wait_for(Option::is_some)).await else {
+        return Ok(None);
+    };
+    let got = done.map_err(|_| anyhow!("transcription stopped"))?.clone();
+    JOBS.lock().unwrap().remove(video);
+    let mut t = got.expect("waited for Some").map_err(|e| anyhow!(e))?;
+    if let Some((title, show, length)) = names {
+        t.title = title;
+        t.uploader = Some(show);
+        t.duration = t.duration.or(length);
     }
-    let conn = db.lock().unwrap();
-    let v = db::video(&conn, video)?
-        .with_context(|| format!("no video {video} in tx; pass a URL instead"))?;
-    Ok(v.url)
+    Ok(Some(t))
 }
 
 async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
-    let silent: ytdlp::Progress = Box::new(|_| {});
     Ok(match name {
         "get_profile" => {
             let s = db::get_settings(&db.lock().unwrap())?;
@@ -152,7 +232,8 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
             let list: Vec<Value> = db::channels(&db.lock().unwrap())?
                 .into_iter()
                 .filter(|c| !only || c.enabled)
-                .map(|c| json!({ "id": c.id, "title": c.title, "watching": c.enabled, "analyzed": c.analyzed, "checked_at": c.checked_at }))
+                .map(|c| json!({ "id": c.id, "title": c.title, "kind": if c.podcast { "podcast" } else { "youtube" },
+                                 "watching": c.enabled, "analyzed": c.analyzed, "checked_at": c.checked_at }))
                 .collect();
             serde_json::to_string_pretty(&list)?
         }
@@ -160,11 +241,18 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
             let (found, new) = match (args["file"].as_str(), args["browser"].as_str()) {
                 (Some(f), _) if !f.trim().is_empty() => {
                     let f = f.trim();
-                    let path = f
+                    let path: std::path::PathBuf = f
                         .strip_prefix("~/")
                         .and_then(|rest| dirs::home_dir().map(|h| h.join(rest)))
                         .unwrap_or_else(|| f.into());
-                    feeds::import_takeout(db, &path)?
+                    let opml = path.extension().is_some_and(|e| {
+                        e.eq_ignore_ascii_case("opml") || e.eq_ignore_ascii_case("xml")
+                    });
+                    if opml {
+                        podcasts::import_opml(db, &path)?
+                    } else {
+                        feeds::import_takeout(db, &path)?
+                    }
                 }
                 (_, Some(b)) if !b.trim().is_empty() => {
                     feeds::import_subscriptions(db, b.trim()).await?
@@ -189,9 +277,11 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
             )?
         }
         "get_transcript" => {
-            let url = resolve(db, str_arg(args, "video")?)?;
-            let model = db::get_settings(&db.lock().unwrap())?.model;
-            let (t, _) = ytdlp::load(&url, None, false, &model, false, &silent).await?;
+            let Some(t) = transcript(db, str_arg(args, "video")?).await? else {
+                return Ok("Still transcribing this one on the user's computer (long audio takes a few minutes). \
+                           Analyze other videos meanwhile, then call get_transcript again for it."
+                    .into());
+            };
             let text = captions::render(&t, true);
             // Split at paragraph boundaries.
             let mut parts: Vec<String> = vec![String::new()];
@@ -220,12 +310,19 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
             let a: AgentAnalysis =
                 serde_json::from_value(args.clone()).context("invalid analysis")?;
             let md = report::compose(&a)?;
-            let url = resolve(db, id)?;
-            let model = db::get_settings(&db.lock().unwrap())?.model;
-            let duration = ytdlp::load(&url, None, false, &model, false, &silent)
-                .await
-                .ok()
-                .and_then(|(t, _)| t.duration);
+            let v = db::video(&db.lock().unwrap(), id)?
+                .with_context(|| format!("no video {id} in tx"))?;
+            // YouTube's feed has no lengths; the transcript does. Podcast feeds list them.
+            let duration = if v.duration.is_some() || v.podcast {
+                None
+            } else {
+                let model = db::get_settings(&db.lock().unwrap())?.model;
+                let silent: ytdlp::Progress = Box::new(|_| {});
+                ytdlp::load(&v.url, None, false, &model, false, &silent)
+                    .await
+                    .ok()
+                    .and_then(|(t, _)| t.duration)
+            };
             if !db::save_analysis(
                 &db.lock().unwrap(),
                 id,
@@ -247,6 +344,25 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
                 bail!("no such video");
             }
             "Skipped; it will be retried on a later run.".into()
+        }
+        "pass_video" => {
+            if !db::mark_passed(
+                &db.lock().unwrap(),
+                str_arg(args, "video_id")?,
+                str_arg(args, "reason")?,
+            )? {
+                bail!("no such video");
+            }
+            "Passed; it won't be transcribed or shown.".into()
+        }
+        "find_podcasts" => {
+            let found = podcasts::search(str_arg(args, "query")?).await?;
+            if found.is_empty() {
+                bail!(
+                    "no podcasts found; try other words, or watch_channel with the show's RSS feed URL"
+                );
+            }
+            serde_json::to_string_pretty(&found)?
         }
         "feed" => {
             let min = args["min_relevance"].as_i64().unwrap_or(0);
@@ -326,14 +442,24 @@ fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
     let mut md = String::new();
     for v in &videos {
         let p = report::parts(v.analysis.as_deref().unwrap_or_default());
+        // Podcast timestamps open the audio file at that second (a media fragment).
         let at_url = |at: &Option<String>| {
-            at.as_deref()
-                .and_then(report::seconds)
-                .map(|s| format!("{}&t={s}s", v.url))
+            at.as_deref().and_then(report::seconds).map(|s| {
+                if v.podcast {
+                    format!("{}#t={s}", v.url)
+                } else {
+                    format!("{}&t={s}s", v.url)
+                }
+            })
+        };
+        let page = if v.podcast {
+            v.link.as_deref().unwrap_or(&v.url)
+        } else {
+            &v.url
         };
         let length = v.duration.map(captions::fmt_time);
         let title = v.title.replace(['[', ']'], "");
-        md.push_str(&format!("### [{title}]({})\n", v.url));
+        md.push_str(&format!("### [{title}]({page})\n"));
         let mut meta = vec![
             v.channel.clone(),
             chrono::DateTime::parse_from_rfc3339(&v.published)
@@ -371,8 +497,9 @@ fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
             _ => md.push_str(&format!("{} · not analyzed yet\n\n", meta.join(" · "))),
         }
         cards.push(json!({
-            "id": v.id, "title": v.title, "channel": v.channel, "url": v.url, "published": v.published,
-            "thumbnail": format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", v.id), "length": length,
+            "id": v.id, "title": v.title, "channel": v.channel, "url": page, "published": v.published,
+            "podcast": v.podcast, "length": length,
+            "thumbnail": if v.podcast { v.image.clone() } else { Some(format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", v.id)) },
             "analyzed": v.status == "done", "relevance": v.relevance, "verdict": v.verdict, "tldr": p.tldr,
             "takeaways": p.takeaways.iter().map(|t| json!({ "text": t.text, "at": t.at, "url": at_url(&t.at) })).collect::<Vec<_>>(),
             "advice": p.advice, "skim_from": p.skim_from, "skim_to": p.skim_to, "skim_url": at_url(&p.skim_from),
@@ -428,10 +555,24 @@ async fn handle(db: &Db, ui: &mut bool, msg: &Value) -> Option<Value> {
         "resources/list" => Ok(json!({ "resources": [
             { "uri": CARDS_URI, "name": "Video cards", "mimeType": CARDS_MIME }
         ] })),
-        "resources/read" if params["uri"] == CARDS_URI => Ok(json!({ "contents": [{
-            "uri": CARDS_URI, "mimeType": CARDS_MIME, "text": CARDS_HTML,
-            "_meta": { "ui": { "csp": { "resourceDomains": ["https://i.ytimg.com"] }, "prefersBorder": false } },
-        }] })),
+        "resources/read" if params["uri"] == CARDS_URI => {
+            // Podcast artwork lives on each show's own host; allow the hosts of watched shows.
+            let mut hosts = vec!["https://i.ytimg.com".to_string()];
+            for c in db::channels(&db.lock().unwrap()).unwrap_or_default() {
+                let origin = c.image.as_deref().and_then(|u| {
+                    let (scheme, rest) = u.split_once("://")?;
+                    Some(format!("{scheme}://{}", rest.split('/').next()?))
+                });
+                if let Some(o) = origin.filter(|o| o.starts_with("https://") && !hosts.contains(o))
+                {
+                    hosts.push(o);
+                }
+            }
+            Ok(json!({ "contents": [{
+                "uri": CARDS_URI, "mimeType": CARDS_MIME, "text": CARDS_HTML,
+                "_meta": { "ui": { "csp": { "resourceDomains": hosts }, "prefersBorder": false } },
+            }] }))
+        }
         "resources/read" => Err(json!({ "code": -32002, "message": "resource not found" })),
         "tools/call" => {
             let name = params["name"].as_str().unwrap_or_default();

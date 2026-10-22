@@ -60,11 +60,12 @@ async fn model_path(name: &str, progress: &Progress) -> Result<PathBuf> {
 
 async fn download_audio(url: &str, item: Option<u64>, dir: &Path) -> Result<PathBuf> {
     // AAC in MP4 first: what symphonia decodes (YouTube's opus/webm is not). X labels its
-    // audio-only HLS streams "mp4" with an unknown codec. Smallest muxed video as a last resort.
+    // audio-only HLS streams "mp4" with an unknown codec. Smallest muxed video as a last resort,
+    // and for a plain audio file (a podcast episode's MP3) its only format.
     let mut args: Vec<OsString> = vec![
         "-q".into(),
         "-f".into(),
-        "bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio[acodec^=mp4a]/worst[ext=mp4][acodec!=none]/bestaudio".into(),
+        "bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio[acodec^=mp4a]/worst[ext=mp4][acodec!=none]/bestaudio/best".into(),
         "-o".into(),
         dir.join("audio.%(ext)s").into_os_string(),
     ];

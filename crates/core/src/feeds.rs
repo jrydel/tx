@@ -1,4 +1,4 @@
-//! Channel discovery via yt-dlp; new-video detection via YouTube's public per-channel RSS
+//! YouTube channel discovery via yt-dlp and subscription imports; new-video detection via YouTube's public per-channel RSS
 //! feeds (no login, no API quota).
 
 use crate::db::{self, Db};
@@ -124,10 +124,11 @@ fn save_channels(db: &Db, found: &[(String, String)]) -> Result<(usize, usize)> 
 
 static CHANNEL_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^UC[\w-]{22}$").unwrap());
 
-/// Watch a channel given @handle, channel id, channel URL, or any of its video URLs.
+/// Watch a channel or podcast given an @handle, channel URL, any of its video URLs, a podcast
+/// feed URL, or the id of a channel tx already knows (from an import).
 pub async fn add_channel(db: &Db, reference: &str) -> Result<String> {
     let r = reference.trim();
-    if CHANNEL_ID.is_match(r) {
+    {
         // Already imported: no lookup needed.
         let conn = db.lock().unwrap();
         if db::set_enabled(&conn, r, true)? {
@@ -135,6 +136,16 @@ pub async fn add_channel(db: &Db, reference: &str) -> Result<String> {
                 .into_iter()
                 .find(|c| c.id == r)
                 .map_or_else(|| r.to_string(), |c| c.title));
+        }
+    }
+    let youtube = r.starts_with('@')
+        || CHANNEL_ID.is_match(r)
+        || ["youtube.com/", "youtu.be/"].iter().any(|d| r.contains(d));
+    if !youtube && r.starts_with("http") {
+        // Not YouTube: a podcast feed, or a page yt-dlp knows if it isn't one.
+        match crate::podcasts::add(db, r).await {
+            Ok(title) => return Ok(title),
+            Err(e) => log::info!("{r} is not a podcast feed ({e:#}); trying it as a video page"),
         }
     }
     let url = if r.starts_with('@') {
@@ -215,16 +226,24 @@ pub fn initial_status(published: &str, watching_since: Option<&str>) -> &'static
     }
 }
 
-/// Insert unseen videos of watched channels; returns how many were queued.
+/// Insert unseen videos and episodes of watched channels and podcasts; returns how many were queued.
 pub async fn poll(db: &Db) -> Result<usize> {
-    let channels: Vec<(String, String, Option<String>)> = {
+    type Row = (String, String, Option<String>, Option<String>);
+    let channels: Vec<Row> = {
         let conn = db.lock().unwrap();
-        conn.prepare("SELECT id, title, enabled_at FROM channels WHERE enabled = 1")?
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        conn.prepare("SELECT id, title, enabled_at, feed_url FROM channels WHERE enabled = 1")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
             .collect::<rusqlite::Result<_>>()?
     };
     let mut queued = 0;
-    for (id, title, since) in channels {
+    for (id, title, since, feed_url) in channels {
+        if let Some(feed_url) = feed_url {
+            match crate::podcasts::poll_show(db, &id, &feed_url, since.as_deref()).await {
+                Ok(n) => queued += n,
+                Err(e) => log::warn!("feed failed for {title}: {e:#}"),
+            }
+            continue;
+        }
         let entries = match feed(&id).await {
             Ok(e) => e,
             Err(e) => {

@@ -8,26 +8,32 @@ use std::collections::BTreeMap;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS channels (
-    id         TEXT PRIMARY KEY,           -- YouTube channel id (UC…)
+    id         TEXT PRIMARY KEY,           -- YouTube channel id (UC…) or pod-<hash of feed_url>
     title      TEXT NOT NULL,
     enabled    INTEGER NOT NULL DEFAULT 0,
     enabled_at TEXT,                       -- videos published before this are not auto-analyzed
-    checked_at TEXT
+    checked_at TEXT,
+    feed_url   TEXT,                       -- podcasts: the show's RSS feed
+    image      TEXT                        -- podcasts: artwork URL
 );
 CREATE TABLE IF NOT EXISTS videos (
-    id          TEXT PRIMARY KEY,          -- YouTube video id
+    id          TEXT PRIMARY KEY,          -- YouTube video id, or ep-<hash> for a podcast episode
     channel_id  TEXT NOT NULL REFERENCES channels(id),
     title       TEXT NOT NULL,
-    url         TEXT NOT NULL,
+    url         TEXT NOT NULL,             -- the video, or the episode's audio file
     published   TEXT NOT NULL,
-    status      TEXT NOT NULL,             -- skipped | queued | working | done | error
+    status      TEXT NOT NULL,             -- skipped | queued | working | done | error | passed
     attempts    INTEGER NOT NULL DEFAULT 0,
     relevance   INTEGER,                   -- 0-5 against the user's profile
     verdict     TEXT,                      -- one-line reason for the relevance score
     analysis    TEXT,                      -- markdown
-    error       TEXT,
+    error       TEXT,                      -- why it failed, or why the agent passed on it
     analyzed_at TEXT,
-    duration    REAL                       -- seconds
+    duration    REAL,                      -- seconds
+    link        TEXT,                      -- podcasts: the episode's web page
+    description TEXT,                      -- podcasts: show notes, to judge before transcribing
+    transcript_url  TEXT,                  -- podcasts: transcript published in the feed
+    transcript_type TEXT
 );
 CREATE INDEX IF NOT EXISTS videos_published ON videos(published DESC);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -72,6 +78,14 @@ pub struct Video {
     pub error: Option<String>,
     pub duration: Option<f64>,
     pub analyzed_at: Option<String>,
+    /// A podcast episode (its `url` is the audio file) rather than a YouTube video.
+    pub podcast: bool,
+    pub link: Option<String>,
+    pub description: Option<String>,
+    pub transcript_url: Option<String>,
+    pub transcript_type: Option<String>,
+    /// The show's artwork (podcasts).
+    pub image: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -81,6 +95,8 @@ pub struct Channel {
     pub enabled: bool,
     pub checked_at: Option<String>,
     pub analyzed: i64,
+    pub podcast: bool,
+    pub image: Option<String>,
 }
 
 pub fn now() -> String {
@@ -92,11 +108,27 @@ pub fn connect() -> Result<Connection> {
     conn.busy_timeout(std::time::Duration::from_secs(30))?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.execute_batch(SCHEMA)?;
-    let has_duration = conn
-        .prepare("SELECT 1 FROM pragma_table_info('videos') WHERE name = 'duration'")?
-        .exists([])?;
-    if !has_duration {
-        conn.execute("ALTER TABLE videos ADD COLUMN duration REAL", [])?; // databases from tx 0.1
+    // Columns added after the first release of each table.
+    for (table, column, kind) in [
+        ("videos", "duration", "REAL"),
+        ("videos", "link", "TEXT"),
+        ("videos", "description", "TEXT"),
+        ("videos", "transcript_url", "TEXT"),
+        ("videos", "transcript_type", "TEXT"),
+        ("channels", "feed_url", "TEXT"),
+        ("channels", "image", "TEXT"),
+    ] {
+        let exists = conn
+            .prepare(&format!(
+                "SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"
+            ))?
+            .exists([column])?;
+        if !exists {
+            conn.execute(
+                &format!("ALTER TABLE {table} ADD COLUMN {column} {kind}"),
+                [],
+            )?;
+        }
     }
     Ok(conn)
 }
@@ -223,8 +255,19 @@ pub fn set_enabled(conn: &Connection, id: &str, on: bool) -> Result<bool> {
     Ok(n == 1)
 }
 
+/// The agent judged a podcast episode off-profile from its title and notes, before spending
+/// minutes transcribing it. Unlike a failure it is not retried.
+pub fn mark_passed(conn: &Connection, id: &str, reason: &str) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE videos SET status = 'passed', error = ?1 WHERE id = ?2",
+        params![reason, id],
+    )?;
+    Ok(n == 1)
+}
+
 const VIDEO_COLS: &str = "v.id, v.title, v.url, v.channel_id, c.title, v.published, v.status, v.relevance, \
-    v.verdict, v.analysis, v.error, v.duration, v.analyzed_at";
+    v.verdict, v.analysis, v.error, v.duration, v.analyzed_at, c.feed_url IS NOT NULL, v.link, v.description, \
+    v.transcript_url, v.transcript_type, c.image";
 
 fn video_row(r: &rusqlite::Row) -> rusqlite::Result<Video> {
     Ok(Video {
@@ -241,6 +284,12 @@ fn video_row(r: &rusqlite::Row) -> rusqlite::Result<Video> {
         error: r.get(10)?,
         duration: r.get(11)?,
         analyzed_at: r.get(12)?,
+        podcast: r.get(13)?,
+        link: r.get(14)?,
+        description: r.get(15)?,
+        transcript_url: r.get(16)?,
+        transcript_type: r.get(17)?,
+        image: r.get(18)?,
     })
 }
 
@@ -283,7 +332,8 @@ pub fn channels(conn: &Connection) -> Result<Vec<Channel>> {
     let rows = conn
         .prepare(
             "SELECT c.id, c.title, c.enabled, c.checked_at, \
-             (SELECT COUNT(*) FROM videos v WHERE v.channel_id = c.id AND v.status = 'done') \
+             (SELECT COUNT(*) FROM videos v WHERE v.channel_id = c.id AND v.status = 'done'), \
+             c.feed_url IS NOT NULL, c.image \
              FROM channels c ORDER BY c.title COLLATE NOCASE",
         )?
         .query_map([], |r| {
@@ -293,6 +343,8 @@ pub fn channels(conn: &Connection) -> Result<Vec<Channel>> {
                 enabled: r.get::<_, i64>(2)? == 1,
                 checked_at: r.get(3)?,
                 analyzed: r.get(4)?,
+                podcast: r.get(5)?,
+                image: r.get(6)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;

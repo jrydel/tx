@@ -2,7 +2,7 @@
 
 Don't watch the video. Read it, then decide.
 
-tx watches the YouTube channels you pick. Every new upload is transcribed and screened against a description of what *you* want to learn: a 0–5 score, a TL;DR, takeaways at their timestamps, and whether it's worth watching at all. Each morning you get a digest of what's worth your time.
+tx watches the YouTube channels and podcasts you pick. Every new video and episode is transcribed and screened against a description of what *you* want to learn: a 0–5 score, a TL;DR, takeaways at their timestamps, and whether it's worth your time at all. Each morning you get a brief of what's worth watching or hearing.
 
 **Your own AI does the thinking, on your existing subscription.** tx runs on your computer and fetches channels and transcripts (on your own internet connection, which YouTube doesn't block). Claude Code, Claude Desktop or Codex (ChatGPT) reads them and writes the analysis. No accounts, no servers, no API keys, no cost beyond the subscription you already have.
 
@@ -40,7 +40,7 @@ Run the line for the AI you use:
 
 Then restart that app if it's open. This adds tx's tools and the **screen-videos** skill.
 
-### 3. Tell it what you want and which channels to watch
+### 3. Tell it what you want and what to follow
 
 Start a new chat and say, in your own words:
 
@@ -59,6 +59,12 @@ Then, whenever you like:
 Only videos uploaded after you start watching a channel are analyzed automatically, so nothing happens until a channel posts something new. To try it right away:
 
 > Use tx: TL;DR of the latest 3 Fireship videos.
+
+**Podcasts** work the same way:
+
+> Use tx: follow Latent Space and Practical AI.
+
+It finds shows by name in Apple's podcast directory (no account needed) or takes a feed URL. To bring all your shows at once, export an OPML file from your podcast app (Pocket Casts, Overcast, AntennaPod and most others can) and say "import my podcasts from ~/Downloads/podcasts.opml". Many shows publish transcripts, which tx uses as is. Episodes without one are transcribed on your computer, which takes a few minutes for a long episode, so the agent first passes on episodes whose title and show notes clearly don't fit you.
 
 ### 4. Optional: every morning, automatically
 
@@ -127,14 +133,15 @@ Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/s
 | Tool | Does |
 |---|---|
 | `get_profile` / `set_profile` | what the user wants to learn |
-| `watch_channel` / `unwatch_channel` / `list_channels` | channels by `@handle`, URL or id (several at once) |
-| `import_subscriptions` | import your YouTube subscriptions from a signed-in browser (`chrome`, `firefox`, `chrome:Profile 2`…) or a Google Takeout export |
-| `check_new_videos` | poll watched channels (RSS); list uploads waiting for analysis |
-| `get_transcript` | timestamped transcript of a tx video or any URL, in parts for long videos |
-| `save_analysis` / `skip_video` | store the agent's score, verdict, TL;DR, takeaways and watch advice |
+| `watch_channel` / `unwatch_channel` / `list_channels` | channels by `@handle`, URL or id, and podcasts by feed URL (several at once) |
+| `find_podcasts` | search Apple's podcast directory for a show's feed |
+| `import_subscriptions` | import your YouTube subscriptions from a signed-in browser (`chrome`, `firefox`, `chrome:Profile 2`…) or a Google Takeout export, or your podcasts from an OPML file |
+| `check_new_videos` | poll watched channels and podcasts (RSS); list uploads waiting for analysis, with show notes for episodes |
+| `get_transcript` | timestamped transcript of a tx video or episode or any URL, in parts for long ones; long local transcriptions keep running between calls |
+| `save_analysis` / `skip_video` / `pass_video` | store the agent's score, verdict, TL;DR, takeaways and watch advice; retry later; or pass on an off-profile episode without transcribing it |
 | `recent_videos` | a channel's latest uploads, including ones from before you watched it |
 | `feed` | recently analyzed videos |
-| `show_videos` | your video brief: videos grouped Watch / Skim / Skip, each with a timeline of where the value is, TL;DR and takeaways that jump to the moment ([MCP App](https://modelcontextprotocol.io/extensions/apps/overview)); markdown in apps without MCP Apps |
+| `show_videos` | your brief: videos and episodes grouped Watch / Skim / Skip, each with a timeline of where the value is, TL;DR and takeaways that jump to the moment ([MCP App](https://modelcontextprotocol.io/extensions/apps/overview)); markdown in apps without MCP Apps |
 | `write_digest` | markdown digest + notification |
 
 Only uploads published after you start watching a channel are screened automatically, so adding a channel doesn't trigger a backlog.
