@@ -10,7 +10,18 @@ case "$(uname -s)-$(uname -m)" in
 esac
 
 dir="${TX_INSTALL_DIR:-$HOME/.local/bin}"
-mkdir -p "$dir"
+# A folder created earlier by a tool run with sudo belongs to root, and the download can't be written there.
+if ! mkdir -p "$dir" 2>/dev/null || [ ! -w "$dir" ]; then
+  # The folder that blocks it: the default's parent ~/.local is the usual culprit.
+  fix="$dir"
+  case "$dir" in "$HOME/.local/"*) fix="$HOME/.local" ;; esac
+  echo "tx: can't write to $dir. $fix probably belongs to root (tools run with sudo leave it that way)." >&2
+  echo "Make it yours, then run the installer again:" >&2
+  echo "  sudo chown -R \"\$(id -un)\" \"$fix\"" >&2
+  echo "Or install somewhere else, for example ~/bin:" >&2
+  echo "  curl -fsSL https://raw.githubusercontent.com/jrydel/tx/master/install.sh | TX_INSTALL_DIR=\"\$HOME/bin\" sh" >&2
+  exit 1
+fi
 echo "Downloading $asset…"
 curl -fsSL "https://github.com/jrydel/tx/releases/latest/download/$asset" -o "$dir/tx.tmp"
 chmod +x "$dir/tx.tmp"
@@ -20,7 +31,15 @@ echo "Installed $("$dir/tx" --version) to $dir/tx"
 
 case ":$PATH:" in
   *":$dir:"*) ;;
-  *) echo "Add $dir to your PATH, e.g.: echo 'export PATH=\"$dir:\$PATH\"' >> ~/.profile" ;;
+  *)
+    case "${SHELL:-}" in
+      */zsh) rc="$HOME/.zshrc" ;;
+      */bash) rc="$HOME/.bashrc" ;;
+      *) rc="$HOME/.profile" ;;
+    esac
+    echo "Add $dir to your PATH, then open a new terminal:"
+    echo "  echo 'export PATH=\"$dir:\$PATH\"' >> $rc"
+    ;;
 esac
 
 cat <<EOF
