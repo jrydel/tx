@@ -9,16 +9,18 @@ case "$(uname -s)-$(uname -m)" in
   *) echo "tx: no prebuilt binary for $(uname -s) $(uname -m); build from source: https://github.com/jrydel/tx" >&2; exit 1 ;;
 esac
 
-dir="${TX_INSTALL_DIR:-$HOME/.local/bin}"
-# A folder created earlier by a tool run with sudo belongs to root, and the download can't be written there.
-if ! mkdir -p "$dir" 2>/dev/null || [ ! -w "$dir" ]; then
-  # The folder that blocks it: the default's parent ~/.local is the usual culprit.
-  fix="$dir"
-  case "$dir" in "$HOME/.local/"*) fix="$HOME/.local" ;; esac
-  echo "tx: can't write to $dir. $fix probably belongs to root (tools run with sudo leave it that way)." >&2
-  echo "Make it yours, then run the installer again:" >&2
-  echo "  sudo chown -R \"\$(id -un)\" \"$fix\"" >&2
-  echo "Or install somewhere else, for example ~/bin:" >&2
+writable() { mkdir -p "$1" 2>/dev/null && [ -w "$1" ]; }
+
+if [ -n "${TX_INSTALL_DIR:-}" ]; then
+  dir="$TX_INSTALL_DIR"
+elif writable "$HOME/.local/bin"; then
+  dir="$HOME/.local/bin"
+else
+  # ~/.local sometimes belongs to root (left by a tool run with sudo); use a folder of our own instead.
+  dir="$HOME/.tx/bin"
+fi
+if ! writable "$dir"; then
+  echo "tx: can't write to $dir. Pick a folder you own, for example:" >&2
   echo "  curl -fsSL https://raw.githubusercontent.com/jrydel/tx/master/install.sh | TX_INSTALL_DIR=\"\$HOME/bin\" sh" >&2
   exit 1
 fi
@@ -37,8 +39,15 @@ case ":$PATH:" in
       */bash) rc="$HOME/.bashrc" ;;
       *) rc="$HOME/.profile" ;;
     esac
-    echo "Add $dir to your PATH, then open a new terminal:"
-    echo "  echo 'export PATH=\"$dir:\$PATH\"' >> $rc"
+    line="export PATH=\"$dir:\$PATH\""
+    if grep -qsF "$line" "$rc"; then
+      echo "$rc already adds $dir to your PATH. Open a new terminal to use tx."
+    elif { printf '\n# tx\n%s\n' "$line" >> "$rc"; } 2>/dev/null; then
+      echo "Added $dir to your PATH in $rc. Open a new terminal to use tx."
+    else
+      echo "Add $dir to your PATH, then open a new terminal:"
+      echo "  echo '$line' >> $rc"
+    fi
     ;;
 esac
 
