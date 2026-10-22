@@ -106,12 +106,15 @@
   .pending { margin: 16px 0 0; color: var(--faint); }
 
   /* Setup panel: one step at a time, the steps along the top. */
-  .setup { min-height: 0; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 18px 20px 20px; scrollbar-width: thin; }
-  .setup-head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 16px; flex-wrap: wrap; margin-bottom: 14px; }
+  /* The panel fits the height the app offers; on the follow step only the channel list scrolls. */
+  .setup { min-height: 0; display: flex; flex-direction: column; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 14px 18px 16px; scrollbar-width: thin; }
+  .setup > * { flex: 0 0 auto; }
+  .setup-head { display: flex; align-items: center; justify-content: space-between; gap: 4px 16px; flex-wrap: wrap; margin-bottom: 12px; }
+  .setup-head .side { display: flex; align-items: center; gap: 12px; }
   .setup-head b { font-size: 15px; font-weight: 700; }
   .setup-head span { font-size: 12.5px; color: var(--faint); }
   /* Signature: setup progress drawn like a video's timeline in the brief; stops fill in green as you go. */
-  .rail { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 22px; }
+  .rail { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 16px; }
   .stop { position: relative; display: grid; justify-items: start; gap: 7px; padding: 0; font-size: 12.5px; font-weight: 600; color: var(--faint); }
   .stop::after { content: ""; position: absolute; left: 14px; right: 2px; top: 6px; height: 2px; border-radius: 1px; background: var(--line); }
   .stop:last-child::after { display: none; }
@@ -121,19 +124,21 @@
   .stop[aria-current="step"] { color: var(--fg); }
   .stop[aria-current="step"] i { border-color: var(--fg); box-shadow: 0 0 0 4px color-mix(in srgb, var(--fg) 14%, transparent); }
   .stop:hover { color: var(--fg); }
-  .setup h2 { margin: 0 0 4px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
-  .hint { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; }
+  .setup h2 { margin: 0 0 2px; font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
+  .hint { margin: 0 0 10px; color: var(--muted); font-size: 13.5px; }
   .hint .quiet { padding: 0; text-decoration: underline; text-underline-offset: 3px; }
-  textarea, input[type="text"], input[type="time"], select { width: 100%; font: inherit; color: var(--fg); background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
-  textarea { min-height: 96px; resize: vertical; line-height: 1.5; }
+  /* Fields are outlined, not filled: on a dark host, filled wells read as holes and outweigh the content. */
+  textarea, input[type="text"], input[type="time"], select { width: 100%; font: inherit; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; }
+  select { background: var(--panel); }
+  textarea { min-height: 84px; resize: vertical; line-height: 1.5; }
   textarea:focus, input:focus, select:focus { outline: none; border-color: var(--fg); }
   .examples { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
-  .examples button { display: grid; gap: 3px; align-content: start; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; text-align: left; font-size: 12.5px; line-height: 1.4; color: var(--muted); }
+  .examples button { display: grid; gap: 2px; align-content: start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; text-align: left; font-size: 12.5px; line-height: 1.4; color: var(--muted); }
   .examples button b { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
   .examples button span { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
   .examples button:hover { color: var(--fg); border-color: var(--faint); }
   @media (max-width: 600px) { .examples { grid-template-columns: 1fr; } }
-  .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+  .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
   .primary { font-weight: 650; font-size: 13.5px; padding: 7px 16px; border-radius: 8px; background: var(--fg); color: var(--panel); }
   .primary:disabled { opacity: .4; cursor: default; }
   .quiet { font-size: 13px; font-weight: 600; color: var(--muted); padding: 7px 6px; }
@@ -141,8 +146,21 @@
   .row2 { display: flex; gap: 8px; align-items: stretch; }
   .row2 > input:first-child { flex: 1; min-width: 0; }
   .row2 select { width: auto; }
-  .section { margin-top: 18px; }
-  .checks { margin-top: 8px; max-height: 300px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; scrollbar-width: thin; }
+  /* Ways to add: two side-by-side sources, each one sentence and one button. */
+  .adders { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .source { display: grid; gap: 8px; align-content: start; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; }
+  .source > b { font-size: 13px; font-weight: 650; }
+  .source > b span { display: block; margin-top: 1px; font-weight: 400; font-size: 12.5px; color: var(--faint); }
+  @media (max-width: 600px) { .adders { grid-template-columns: 1fr; } }
+  .steph { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .steph .quiet { padding: 0; }
+  .pickbox { flex: 1 1 auto !important; min-height: 0; display: flex; flex-direction: column; margin-top: 10px; }
+  .pickhead { display: flex; align-items: center; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; }
+  .pickhead .hint { margin: 0; }
+  .pickhead input { width: 160px; padding: 5px 10px; font-size: 13px; }
+  .checks { flex: 1 1 auto; min-height: 96px; margin-top: 8px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; scrollbar-width: thin; }
+  .pickbox .actions { flex: 0 0 auto; margin-top: 10px; }
+  .more { margin-top: 10px; }
   .check { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: start; padding: 8px 11px; border-top: 1px solid var(--line); cursor: pointer; }
   .check:first-child { border-top: 0; }
   .check:hover { background: var(--sunk); }
@@ -368,7 +386,7 @@
         b.addEventListener("click", () => show(id));
         return b;
       }));
-      const head = el("div", { class: "setup-head" }, el("b", {}, "Set up tx"), el("span", {}, "Two minutes, then your first brief"));
+      const head = el("div", { class: "setup-head" }, el("b", {}, "Set up tx"), el("div", { class: "side" }, el("span", {}, "Two minutes, then your first brief"), expand));
       panel.replaceChildren(head, nav, ...({ about, follow, daily, done: finished })[step]().filter(Boolean));
     };
 
@@ -391,14 +409,19 @@
         box, el("p", { class: "hint", style: "margin:10px 0 0" }, "Or start from an example:"), examples, el("div", { class: "actions" }, save)];
     }
 
+    /**
+     * Before anything is imported: two ways to add, side by side. After: the list is the step,
+     * with the AI's picks ticked, and the ways to add fold away behind "Add more".
+     */
     function follow() {
+      const has = data.channels.length > 0;
       const browser = el("select", { "aria-label": "Browser signed in to YouTube" }, BROWSERS.map((b) => el("option", { value: b.toLowerCase() }, b)));
-      const importBtn = el("button", { type: "button", class: "primary" }, "Import YouTube subscriptions");
+      const importBtn = el("button", { type: "button", class: has ? "quiet" : "primary" }, has ? "Import again" : "Import");
       importBtn.addEventListener("click", () => {
         const b = browser.value;
         act([["import_subscriptions", { browser: b }]], `Use tx: import my YouTube subscriptions from ${b}. Then continue my onboarding with your suggestions for my profile.`);
       });
-      const names = el("input", { type: "text", placeholder: "@fireship, Latent Space podcast, or a link", "aria-label": "Channels or podcasts to follow" });
+      const names = el("input", { type: "text", placeholder: "@fireship, Latent Space, or a link", "aria-label": "Channel or podcast to follow" });
       const add = el("button", { type: "button", class: "quiet" }, "Follow");
       add.addEventListener("click", () => {
         const text = names.value.trim();
@@ -406,39 +429,51 @@
         act([], `Use tx: follow ${text}. Then continue my onboarding.`);
       });
       names.addEventListener("keydown", (e) => { if (e.key === "Enter") add.click(); });
-      const parts = [el("h2", {}, "What should tx follow?"),
-        el("p", { class: "hint" }, "Bring in the YouTube channels you subscribe to, or add channels and podcasts by name. Only what you tick gets analyzed."),
-        el("div", { class: "row2" }, browser, importBtn),
-        el("div", { class: "section row2" }, names, add)];
-      if (data.channels.length) {
-        const picked = new Set(data.channels.filter((c) => c.watching || c.suggested).map((c) => c.id));
-        const go = el("button", { type: "button", class: "primary" });
-        const count = () => { go.textContent = `Follow ${picked.size} selected`; go.disabled = !picked.size; };
-        const rows = data.channels.map((c) => {
-          const box = el("input", { type: "checkbox", "aria-label": c.title });
-          box.checked = picked.has(c.id);
-          box.addEventListener("change", () => { box.checked ? picked.add(c.id) : picked.delete(c.id); count(); });
-          return el("label", { class: "check", "data-name": c.title.toLowerCase() }, box,
-            el("span", {}, el("span", { class: "name" }, c.suggested && el("span", { class: "pick" }, "Pick"), c.title), c.why && el("span", { class: "why" }, c.why)),
-            el("span", { class: "tag" }, c.podcast ? "Podcast" : "YouTube"));
-        });
-        const filter = el("input", { type: "text", placeholder: `Filter ${data.channels.length} channels and shows`, "aria-label": "Filter" });
-        filter.addEventListener("input", () => { const q = filter.value.trim().toLowerCase(); for (const r of rows) r.hidden = !!q && !r.dataset.name.includes(q); });
-        go.addEventListener("click", () => {
-          const ids = [...picked];
-          const drop = data.channels.filter((c) => c.watching && !picked.has(c.id)).map((c) => c.id);
-          const calls = [["watch_channel", { channels: ids }], ...drop.map((id) => ["unwatch_channel", { channel_id: id }])];
-          act(calls, `Use tx: follow these (ids): ${ids.join(", ")}.${drop.length ? ` Stop following: ${drop.join(", ")}.` : ""} Then continue my onboarding.`);
-        });
-        count();
-        const picks = data.channels.filter((c) => c.suggested).length;
-        const ask = !picks && el("button", { type: "button", class: "quiet" }, "Let your AI pick");
-        if (ask) ask.addEventListener("click", () => act([], "Use tx: pick which of my imported channels and shows fit my profile, and show onboarding with your picks."));
-        parts.push(el("div", { class: "section" },
-          el("p", { class: "hint" }, picks ? `Your AI picked ${picks} that fit you; change anything.` : "Tick what to follow, or ", ask),
-          filter, el("div", { class: "checks" }, rows), el("div", { class: "actions" }, go)));
+      const adders = el("div", { class: "adders" },
+        el("div", { class: "source" }, el("b", {}, "Your YouTube subscriptions", el("span", {}, "From a browser signed in to YouTube")), el("div", { class: "row2" }, browser, importBtn)),
+        el("div", { class: "source" }, el("b", {}, "A channel or podcast", el("span", {}, "By name, @handle or link")), el("div", { class: "row2" }, names, add)));
+      if (!has) {
+        return [el("h2", {}, "What should tx follow?"),
+          el("p", { class: "hint" }, "Only what you follow gets analyzed. You can add more later."), adders];
       }
-      return parts;
+
+      const picked = new Set(data.channels.filter((c) => c.watching || c.suggested).map((c) => c.id));
+      const go = el("button", { type: "button", class: "primary" });
+      const count = () => { go.textContent = `Follow ${picked.size}`; go.disabled = !picked.size; };
+      const rows = data.channels.map((c) => {
+        const box = el("input", { type: "checkbox", "aria-label": c.title });
+        box.checked = picked.has(c.id);
+        box.addEventListener("change", () => { box.checked ? picked.add(c.id) : picked.delete(c.id); count(); });
+        return el("label", { class: "check", "data-name": c.title.toLowerCase() }, box,
+          el("span", {}, el("span", { class: "name" }, c.suggested && el("span", { class: "pick" }, "Pick"), c.title), c.why && el("span", { class: "why" }, c.why)),
+          el("span", { class: "tag" }, c.podcast ? "Podcast" : "YouTube"));
+      });
+      const filter = el("input", { type: "text", placeholder: `Filter ${data.channels.length}`, "aria-label": "Filter channels and shows" });
+      filter.addEventListener("input", () => { const q = filter.value.trim().toLowerCase(); for (const r of rows) r.hidden = !!q && !r.dataset.name.includes(q); });
+      go.addEventListener("click", () => {
+        const ids = [...picked];
+        const drop = data.channels.filter((c) => c.watching && !picked.has(c.id)).map((c) => c.id);
+        const calls = [["watch_channel", { channels: ids }], ...drop.map((id) => ["unwatch_channel", { channel_id: id }])];
+        act(calls, `Use tx: follow these (ids): ${ids.join(", ")}.${drop.length ? ` Stop following: ${drop.join(", ")}.` : ""} Then continue my onboarding.`);
+      });
+      count();
+      const picks = data.channels.filter((c) => c.suggested).length;
+      const ask = !picks && el("button", { type: "button", class: "quiet" }, "let your AI pick");
+      if (ask) ask.addEventListener("click", () => act([], "Use tx: pick which of my imported channels and shows fit my profile, and show onboarding with your picks."));
+      const more = el("div", { class: "more", hidden: "" }, adders);
+      const toggle = el("button", { type: "button", class: "quiet", "aria-expanded": "false" }, "Add more");
+      toggle.addEventListener("click", () => {
+        more.hidden = !more.hidden;
+        toggle.setAttribute("aria-expanded", String(!more.hidden));
+        toggle.textContent = more.hidden ? "Add more" : "Done adding";
+      });
+      return [el("div", { class: "steph" }, el("h2", {}, "Pick what to follow"), toggle), more,
+        el("div", { class: "pickbox" },
+          el("div", { class: "pickhead" },
+            el("p", { class: "hint" }, picks ? `Your AI picked ${picks} that fit you. Change anything, then follow.` : ["Tick what to follow, or ", ask, "."]),
+            filter),
+          el("div", { class: "checks" }, rows),
+          el("div", { class: "actions" }, go))];
     }
 
     function daily() {
