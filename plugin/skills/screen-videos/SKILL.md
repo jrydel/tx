@@ -7,6 +7,8 @@ description: Check the YouTube channels and podcasts watched in tx for new uploa
 
 tx (MCP server `tx`) fetches YouTube videos and podcast episodes on this computer; you do the analysis. "Video" below means either. Follow these steps.
 
+When you're talking with the user (not on a schedule), start with `status` and guide them to its next step. While setup isn't finished (no profile, nothing followed), show the `onboarding` panel instead of asking in chat; after they import channels, read `list_channels` and call `onboarding` with `suggest` (the ids that fit their profile, a few words why each).
+
 1. Call `get_profile`. It says who the user is and what they want to learn. If it is empty and you can ask the user, ask for 2-3 sentences and save them with `set_profile`; otherwise judge usefulness for a curious technical generalist.
 2. Call `check_new_videos`. It checks watched channels and returns uploads waiting for analysis. If no channels are watched, offer to import the user's YouTube subscriptions (see Choosing channels) or to watch channels they name (`watch_channel` takes `@handle`s, channel URLs, or video URLs), and stop.
 3. For each waiting video, oldest first, at most 15 per run:

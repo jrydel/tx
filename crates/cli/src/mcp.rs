@@ -1,6 +1,7 @@
 //! `tx mcp`: an MCP server over stdio. tx fetches (channels, feeds, transcripts) on this computer;
 //! the user's agent (Claude Code, Claude Desktop, Codex…) does the analysis on their subscription.
 
+use crate::guide;
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -19,7 +20,8 @@ const INSTRUCTIONS: &str = "tx watches YouTube channels and podcasts on this com
 check_new_videos, then for each video or episode get_transcript and save_analysis (or skip_video, or pass_video for a \
 podcast episode that clearly doesn't fit from its title and notes), then write_digest. For a channel's or show's latest \
 use get_profile, then recent_videos. Every analysis is for the profile's owner. Show results to the user with \
-show_videos. The screen-videos skill has the full procedure and scoring rubric.";
+show_videos. At the start of a conversation about tx, call status and guide the user to its next step; while setup \
+isn't finished, show the onboarding panel. The screen-videos skill has the full procedure and scoring rubric.";
 
 /// How long get_transcript waits for a transcription before telling the agent to come back; under
 /// the tool-call timeouts of common hosts, while the transcription keeps running.
@@ -36,6 +38,18 @@ fn tools() -> Value {
     let video_id = json!({ "type": "string", "description": "Video or episode id from check_new_videos, recent_videos or feed" });
     let stamp = json!({ "type": "string", "description": "Timestamp mm:ss or h:mm:ss from the transcript" });
     json!([
+        { "name": "status", "description": "Where the user stands with tx (profile, what they follow, what's waiting, daily brief) and the next step to guide them to, with things they could say. Call it at the start of a conversation about tx and whenever the user seems unsure what to do.",
+          "inputSchema": { "type": "object", "properties": {} } },
+        { "name": "set_daily_brief", "description": "Turn the daily brief on or off: every day at a set time, new uploads are screened with the user's agent, a digest is written and a notification shows what's worth their time. Needs Claude Code or Codex installed.",
+          "inputSchema": { "type": "object", "properties": {
+            "at": { "type": "string", "description": "Local time HH:MM", "default": "08:00" },
+            "off": { "type": "boolean", "default": false } } } },
+        { "name": "onboarding", "description": "Show the setup panel: the user writes what they want to learn, picks what to follow (import buttons, then a checklist of their channels and podcasts) and turns on the daily brief, step by step. Use it when status says setup isn't finished, or when the user asks to set up tx or continue onboarding. Once they've imported channels, pass `suggest` with the ids that fit their profile so they see your picks pre-ticked.",
+          "inputSchema": { "type": "object", "properties": {
+            "suggest": { "type": "array", "description": "Channel or show ids (from list_channels) that fit the profile", "items": { "type": "object", "required": ["id"], "properties": {
+                "id": { "type": "string" }, "why": { "type": "string", "description": "A few words: why it fits" } } } },
+            "step": { "type": "string", "enum": ["about", "follow", "daily", "done"], "description": "Open this step instead of the first unfinished one" } } },
+          "_meta": { "ui": { "resourceUri": CARDS_URI } } },
         { "name": "get_profile", "description": "Who the user is and what they want to learn, plus the score that counts as worth their time.",
           "inputSchema": { "type": "object", "properties": {} } },
         { "name": "set_profile", "description": "Save the user's description of who they are and what they want to learn.",
@@ -534,24 +548,43 @@ fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
     }))
 }
 
-async fn handle(db: &Db, ui: &mut bool, msg: &Value) -> Option<Value> {
+/// What the connected app told us about itself at `initialize`.
+#[derive(Default)]
+struct Session {
+    /// It renders MCP Apps (the brief and the setup panel).
+    ui: bool,
+    /// Its name (clientInfo), to run the daily brief with the same agent.
+    client: String,
+}
+
+async fn handle(db: &Db, session: &mut Session, msg: &Value) -> Option<Value> {
     let id = msg.get("id")?.clone(); // notifications get no reply
     let method = msg["method"].as_str().unwrap_or_default();
     let params = &msg["params"];
     let result = match method {
         "initialize" => {
-            *ui = params["capabilities"]["extensions"]
+            session.ui = params["capabilities"]["extensions"]
                 .get(UI_EXTENSION)
                 .is_some();
+            session.client = params["clientInfo"]["name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
             Ok(json!({
                 "protocolVersion": params["protocolVersion"].as_str().unwrap_or("2025-06-18"),
-                "capabilities": { "tools": {}, "resources": {} },
+                "capabilities": { "tools": {}, "resources": {}, "prompts": {} },
                 "serverInfo": { "name": "tx", "version": env!("CARGO_PKG_VERSION") },
                 "instructions": INSTRUCTIONS,
             }))
         }
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools() })),
+        "prompts/list" => Ok(json!({ "prompts": guide::prompts() })),
+        "prompts/get" => guide::prompt(
+            params["name"].as_str().unwrap_or_default(),
+            &params["arguments"],
+        )
+        .map_err(|e| json!({ "code": -32602, "message": format!("{e:#}") })),
         "resources/list" => Ok(json!({ "resources": [
             { "uri": CARDS_URI, "name": "Video cards", "mimeType": CARDS_MIME }
         ] })),
@@ -578,12 +611,15 @@ async fn handle(db: &Db, ui: &mut bool, msg: &Value) -> Option<Value> {
             let name = params["name"].as_str().unwrap_or_default();
             let empty = json!({});
             let args = params.get("arguments").unwrap_or(&empty);
-            let result = if name == "show_videos" {
-                show_videos(db, args, *ui)
-            } else {
-                call(db, name, args)
-                    .await
-                    .map(|text| json!({ "content": [{ "type": "text", "text": text }] }))
+            let text = |t: String| json!({ "content": [{ "type": "text", "text": t }] });
+            let result = match name {
+                "show_videos" => show_videos(db, args, session.ui),
+                "onboarding" => guide::onboarding(db, args, session.ui),
+                "status" => {
+                    guide::status(db).and_then(|s| Ok(text(serde_json::to_string_pretty(&s)?)))
+                }
+                "set_daily_brief" => guide::set_daily_brief(db, args, &session.client).map(text),
+                _ => call(db, name, args).await.map(text),
             };
             Ok(result.unwrap_or_else(|e| {
                 json!({ "content": [{ "type": "text", "text": format!("{e:#}") }], "isError": true })
@@ -599,7 +635,7 @@ async fn handle(db: &Db, ui: &mut bool, msg: &Value) -> Option<Value> {
 
 pub async fn serve() -> Result<()> {
     let db: Db = Mutex::new(db::connect()?);
-    let mut ui = false;
+    let mut session = Session::default();
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut out = tokio::io::stdout();
     while let Some(line) = lines.next_line().await? {
@@ -607,7 +643,7 @@ pub async fn serve() -> Result<()> {
             continue;
         }
         let reply = match serde_json::from_str::<Value>(&line) {
-            Ok(msg) => handle(&db, &mut ui, &msg).await,
+            Ok(msg) => handle(&db, &mut session, &msg).await,
             Err(e) => Some(
                 json!({ "jsonrpc": "2.0", "id": null, "error": { "code": -32700, "message": e.to_string() } }),
             ),

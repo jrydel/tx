@@ -26,3 +26,5 @@ dirs = "7.0.0"
 serde_json.workspace = true
 chrono = "0.4.45"
 toml_edit = "0.25.17"
+dialoguer = "0.12.0"
+tempfile = "3.27.0"

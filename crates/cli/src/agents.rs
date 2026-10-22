@@ -24,14 +24,14 @@ const CODEX_IN_APPS: &[&str] = &[
 ];
 
 impl Agent {
-    fn program(self) -> &'static str {
+    pub fn program(self) -> &'static str {
         match self {
             Agent::Claude => "claude",
             Agent::Codex => "codex",
         }
     }
 
-    fn find(self) -> Option<PathBuf> {
+    pub fn find(self) -> Option<PathBuf> {
         paths::which(self.program()).or_else(|| {
             (self == Agent::Codex)
                 .then(|| {
@@ -117,7 +117,7 @@ pub fn run(agent: Agent) -> Result<i32> {
     Ok(status.code().unwrap_or(1))
 }
 
-fn claude_desktop_config() -> Option<PathBuf> {
+pub fn claude_desktop_config() -> Option<PathBuf> {
     // macOS: ~/Library/Application Support; Windows: %APPDATA%; Linux: ~/.config
     let base = if cfg!(target_os = "macos") {
         dirs::home_dir()?.join("Library/Application Support")
@@ -147,7 +147,7 @@ fn install_skill(agent_home: &std::path::Path) -> Result<PathBuf> {
 }
 
 /// Codex's settings folder, shared by the Codex app, CLI and IDE extensions.
-fn codex_home() -> Result<PathBuf> {
+pub fn codex_home() -> Result<PathBuf> {
     match std::env::var_os("CODEX_HOME") {
         Some(h) if !h.is_empty() => Ok(PathBuf::from(h)),
         _ => Ok(dirs::home_dir().context("no home dir")?.join(".codex")),

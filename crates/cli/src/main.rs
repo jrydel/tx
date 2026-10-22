@@ -7,7 +7,9 @@ use std::process::{ExitCode, Stdio};
 use tx_core::{agent, captions, db, paths, report, ytdlp};
 
 mod agents;
+mod guide;
 mod mcp;
+mod onboard;
 mod schedule;
 
 #[derive(Parser)]
@@ -47,6 +49,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Set tx up step by step: your AI apps, what you want to learn, what to follow, a daily brief
+    Onboard,
     /// MCP server over stdio, for Claude Code, Claude Desktop, Codex and other MCP clients
     Mcp {
         /// Data folder to use (default: the OS data folder, or $TX_DATA_DIR)
@@ -138,6 +142,10 @@ fn page(text: &str) -> Result<()> {
 
 async fn run(cli: Cli) -> Result<i32> {
     match cli.command {
+        Some(Command::Onboard) => {
+            onboard::run().await?;
+            return Ok(0);
+        }
         Some(Command::Mcp { data_dir }) => {
             if let Some(dir) = data_dir {
                 paths::set_data_dir(dir);
@@ -238,7 +246,9 @@ async fn run(cli: Cli) -> Result<i32> {
         }
         None => {}
     }
-    let url = cli.url.context("pass a video URL (see tx --help)")?;
+    let url = cli
+        .url
+        .context("pass a video URL, or run `tx onboard` to set tx up (see tx --help)")?;
     let progress: ytdlp::Progress = Box::new(|m| eprintln!("tx: {m}"));
     let (t, cache_path) = ytdlp::load(
         &url,

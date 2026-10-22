@@ -26,31 +26,20 @@ On Windows, run in PowerShell:
 irm https://raw.githubusercontent.com/jrydel/tx/master/install.ps1 | iex
 ```
 
-This installs one `tx` program. Open a new terminal afterwards so it's on your PATH.
+This installs one `tx` program and then sets it up with you, in four short steps:
 
-### 2. Connect it to your AI
+1. **Connect your AI**: the apps it finds (Codex / ChatGPT, Claude Code, Claude Desktop) are pre-ticked.
+2. **About you**: who you are and what you want to learn. Every score is against this.
+3. **What to follow**: import your YouTube subscriptions (your AI pre-picks the ones that fit you), a Google Takeout export, a podcast app's OPML file, or add channels and podcasts by name.
+4. **Daily brief**: every morning new uploads are screened and a notification says what's worth your time.
 
-Run the line for the AI you use:
+Run `tx onboard` any time to change something. Restart your AI app afterwards so it loads tx.
 
-| You use | Run |
-|---|---|
-| Codex (ChatGPT app or CLI) | `tx setup codex` |
-| Claude Code | `tx setup claude-code` |
-| Claude Desktop | `tx setup claude-desktop` |
+### 2. Use it in your AI app
 
-Then restart that app if it's open. This adds tx's tools and the **screen-videos** skill.
+Start a new chat. If you skipped setup, say **"Set up tx"** (also in the app's command menu): the Codex app and Claude Desktop show the same steps as a setup panel, with your channels as a checklist.
 
-### 3. Tell it what you want and what to follow
-
-Start a new chat and say, in your own words:
-
-> Use tx. I'm a backend engineer building LLM features; I want concrete agent and eval techniques and notable model launches; skip hype. Watch @fireship and @t3dotgg.
-
-Or let it pick from the channels you already follow:
-
-> Use tx: import my YouTube subscriptions from Chrome and suggest which to watch.
-
-It suggests the channels that fit what you want to learn and watches them once you confirm. If it can't read your browser (it needs to be signed in to YouTube), export your subscriptions instead: at [Google Takeout](https://takeout.google.com) click **Deselect all**, tick **YouTube and YouTube Music**, click **All YouTube data included** and keep only **subscriptions**, then export, download, and tell it where the .zip is.
+If tx can't read your browser for the import (it needs to be signed in to YouTube), export your subscriptions instead: at [Google Takeout](https://takeout.google.com) click **Deselect all**, tick **YouTube and YouTube Music**, click **All YouTube data included** and keep only **subscriptions**, then export, download, and import the .zip.
 
 Then, whenever you like:
 
@@ -66,10 +55,10 @@ Only videos uploaded after you start watching a channel are analyzed automatical
 
 It finds shows by name in Apple's podcast directory (no account needed) or takes a feed URL. To bring all your shows at once, export an OPML file from your podcast app (Pocket Casts, Overcast, AntennaPod and most others can) and say "import my podcasts from ~/Downloads/podcasts.opml". Many shows publish transcripts, which tx uses as is. Episodes without one are transcribed on your computer, which takes a few minutes for a long episode, so the agent first passes on episodes whose title and show notes clearly don't fit you.
 
-### 4. Optional: every morning, automatically
+### 3. Optional: change the daily schedule
 
 ```sh
-tx schedule
+tx schedule --at 07:30
 ```
 
 See [Every morning](#every-morning-automatically) for options and reading digests on your phone.
@@ -128,10 +117,13 @@ Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/s
 
 ## MCP tools
 
-`tx mcp` is a standard stdio MCP server, so any MCP client works. Tools:
+`tx mcp` is a standard stdio MCP server, so any MCP client works. It also offers commands (MCP prompts) apps show in their menu: *Set up tx*, *Today's brief*, *Follow channels or podcasts*, *Import my subscriptions*, *TL;DR a video or episode*. Tools:
 
 | Tool | Does |
 |---|---|
+| `status` | where the user stands and the next step to guide them to |
+| `onboarding` | the setup panel: about you, what to follow (checklist with the AI's picks), daily brief |
+| `set_daily_brief` | turn the daily brief on or off |
 | `get_profile` / `set_profile` | what the user wants to learn |
 | `watch_channel` / `unwatch_channel` / `list_channels` | channels by `@handle`, URL or id, and podcasts by feed URL (several at once) |
 | `find_podcasts` | search Apple's podcast directory for a show's feed |

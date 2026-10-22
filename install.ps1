@@ -15,7 +15,11 @@ if (($userPath -split ";") -notcontains $dir) {
 }
 Write-Host "Installed $(& $exe --version) to $exe"
 Write-Host ""
-Write-Host "Next, open a new terminal and connect tx to your AI (then restart that app):"
-Write-Host "  tx setup codex            # Codex: ChatGPT desktop app or CLI"
-Write-Host "  tx setup claude-code      # Claude Code"
-Write-Host "  tx setup claude-desktop   # Claude Desktop"
+# Set up right away in an interactive console; TX_NO_ONBOARD=1 skips it.
+if (-not $env:TX_NO_ONBOARD -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+  & $exe onboard
+  if ($LASTEXITCODE -ne 0) { Write-Host "Run '$exe onboard' any time to finish setting up." }
+} else {
+  Write-Host "Next, set tx up (your AI apps, what you want to learn, what to follow):"
+  Write-Host "  $exe onboard"
+}

@@ -72,6 +72,18 @@ fn run_ok(cmd: &mut Command) -> Result<()> {
     Ok(())
 }
 
+/// Whether the scheduled run is set up; tx uses it to tell the user what to do next.
+pub fn scheduled() -> bool {
+    #[cfg(target_os = "linux")]
+    return unit_dir().is_ok_and(|d| d.join("tx-run.timer").exists());
+    #[cfg(target_os = "macos")]
+    return plist().is_ok_and(|p| p.exists());
+    #[cfg(windows)]
+    return status().is_ok_and(|s| !s.is_empty());
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    false
+}
+
 #[cfg(target_os = "linux")]
 fn unit_dir() -> Result<PathBuf> {
     Ok(dirs::config_dir()
