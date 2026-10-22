@@ -18,12 +18,15 @@
     --skip: light-dark(#6b7280, #8b8b96);
     --radius: var(--border-radius-lg, 12px);
     --mono: var(--font-mono, ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace);
-    /* Height of the list + detail view; set from the host's max height when it gives one. */
-    --pane-h: 620px;
+    /* Total height of the brief: the host's available height when it says, so the host never adds its own scrollbar. */
+    --app-h: 720px;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: transparent; }
-  body { font: 14px/1.5 var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif); color: var(--fg); padding: 2px; }
+  body { font: 14px/1.5 var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif); color: var(--fg); overflow: hidden; }
+  #root { padding: 2px; display: flex; flex-direction: column; }
+  #root.fill { height: var(--app-h); }
+  #root.cap { max-height: var(--app-h); }
   a { color: inherit; text-decoration: none; cursor: pointer; }
   button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
   [hidden] { display: none !important; }
@@ -36,7 +39,10 @@
 
   /* Masthead: it's a brief, so it says for when, from what, and for whom. */
   .head { margin: 0 2px 10px; display: grid; gap: 1px; }
-  .head .title { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 16px; flex-wrap: wrap; }
+  .head .title { display: flex; align-items: center; justify-content: space-between; gap: 4px 16px; flex-wrap: wrap; }
+  .head .side { display: flex; align-items: center; gap: 12px; }
+  .expand { font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 2px 9px; border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; }
+  .expand:hover { color: var(--fg); border-color: var(--faint); }
   .head h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.005em; }
   .head h1 span { margin-left: 8px; font-weight: 500; color: var(--muted); }
   .head .scope { font-size: 12.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
@@ -44,7 +50,7 @@
   .head .for b { font-weight: 600; color: var(--muted); margin-right: 4px; }
 
   /* List on the left, the selected video on the right; each scrolls on its own. */
-  .split { display: grid; grid-template-columns: minmax(250px, 34%) 1fr; height: var(--pane-h); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--panel); }
+  .split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(250px, min(34%, 420px)) 1fr; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--panel); }
   .list { overflow-y: auto; border-right: 1px solid var(--line); padding: 0 6px 8px; scrollbar-width: thin; }
   .group { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 7px; padding: 10px 8px 6px; background: var(--panel); font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--k); }
   .group::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--k); }
@@ -66,7 +72,7 @@
   .thumb .len { position: absolute; right: 4px; bottom: 4px; background: #000c; color: #fff; font: 600 10.5px/1.5 var(--mono); padding: 0 4px; border-radius: 3px; }
 
   .detail { overflow-y: auto; padding: 18px 20px 22px; scrollbar-width: thin; }
-  .solo { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 18px 20px 22px; }
+  .solo { min-height: 0; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 18px 20px 22px; scrollbar-width: thin; }
   .back { display: none; margin-bottom: 12px; font-size: 13px; font-weight: 600; color: var(--muted); }
   .back:hover { color: var(--fg); }
   .hero { display: grid; grid-template-columns: 188px 1fr; gap: 16px; align-items: start; }
@@ -127,7 +133,18 @@
     request("ui/open-link", { url }).catch(() => window.open(url, "_blank", "noopener"));
   }
 
-  let locale, timeZone;
+  let locale, timeZone, displayMode = "inline", hostModes = [];
+  const expand = el("button", { type: "button", class: "expand", hidden: "" });
+
+  /** Show the full-screen toggle only where the host offers full screen. */
+  function syncExpand() {
+    expand.hidden = !hostModes.includes("fullscreen");
+    expand.textContent = displayMode === "fullscreen" ? "Exit full screen" : "Full screen";
+  }
+  expand.addEventListener("click", () => {
+    request("ui/request-display-mode", { mode: displayMode === "fullscreen" ? "inline" : "fullscreen" })
+      .then((r) => { if (r && r.mode) displayMode = r.mode; syncExpand(); }, () => {});
+  });
 
   function applyContext(ctx) {
     if (!ctx) return;
@@ -135,7 +152,10 @@
     if (ctx.locale) locale = ctx.locale;
     if (ctx.timeZone) timeZone = ctx.timeZone;
     const max = ctx.containerDimensions && (ctx.containerDimensions.height || ctx.containerDimensions.maxHeight);
-    if (max) document.documentElement.style.setProperty("--pane-h", `${Math.max(360, Math.min(680, max - 50))}px`);
+    if (max) document.documentElement.style.setProperty("--app-h", `${Math.max(360, Math.min(2400, max))}px`);
+    if (ctx.displayMode) displayMode = ctx.displayMode;
+    if (Array.isArray(ctx.availableDisplayModes)) hostModes = ctx.availableDisplayModes;
+    syncExpand();
     const vars = ctx.styles && ctx.styles.variables;
     if (vars) for (const [k, v] of Object.entries(vars)) if (v) document.documentElement.style.setProperty(k, v);
     const fonts = ctx.styles && ctx.styles.css && ctx.styles.css.fonts;
@@ -258,9 +278,10 @@
     catch { today = new Date().toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }); }
     const head = el("header", { class: "head" },
       el("div", { class: "title" }, el("h1", {}, "Your video brief", el("span", {}, today)),
-        el("span", { class: "scope" }, `${n} video${n > 1 ? "s" : ""} from ${from}${when}`)),
+        el("div", { class: "side" }, el("span", { class: "scope" }, `${n} video${n > 1 ? "s" : ""} from ${from}${when}`), expand)),
       data.profile && el("p", { class: "for", title: data.profile }, el("b", {}, "Scored for"), data.profile));
     if (n === 1) {
+      root.className = "cap";
       root.replaceChildren(head, el("div", { class: "solo" }, detail(videos[0])));
       return;
     }
@@ -300,6 +321,7 @@
       if (i >= 0 && i < n) { select(i, false); items[i].focus(); }
     });
 
+    root.className = "fill";
     root.replaceChildren(head, split);
     select(0, false);
   }
@@ -334,7 +356,7 @@
 
   request("ui/initialize", {
     appInfo: { name: "tx", version: "1" },
-    appCapabilities: { availableDisplayModes: ["inline"] },
+    appCapabilities: { availableDisplayModes: ["inline", "fullscreen"] },
     protocolVersion: "2026-01-26",
   }).then((r) => {
     applyContext(r && r.hostContext);
