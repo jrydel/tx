@@ -24,7 +24,7 @@ On Windows, paste this into PowerShell instead:
 irm https://raw.githubusercontent.com/jrydel/tx/master/install.ps1 | iex
 ```
 
-**2.** Answer its four questions (about 2 minutes): which AI app, what you want to learn, what to follow, and whether you want a morning brief.
+**2.** Type `tx` and press <kbd>Enter</kbd>. Answer its four questions (about 2 minutes): which AI app, what you want to learn, what to follow, and whether you want a morning brief.
 
 **3.** Quit your AI app completely, open it again, start a new chat and type:
 
@@ -50,7 +50,7 @@ On Windows, run in PowerShell:
 irm https://raw.githubusercontent.com/jrydel/tx/master/install.ps1 | iex
 ```
 
-This installs one `tx` program and then sets it up with you, in four short steps:
+This installs one `tx` program. Then type `tx` to set it up with you, in four short steps:
 
 1. **Connect your AI**: the apps it finds (Codex / ChatGPT, Claude Code, Claude Desktop) are pre-ticked.
 2. **About you**: who you are and what you want to learn. Every score is against this.

@@ -54,15 +54,8 @@ case ":$PATH:" in
     ;;
 esac
 
-# Set up right away when a person is at the terminal (stdin is this script when piped to sh, so
-# answers come from the terminal). TX_NO_ONBOARD=1 skips it.
-if [ -z "${TX_NO_ONBOARD:-}" ] && [ -t 1 ] && { : </dev/tty; } 2>/dev/null; then
-  echo
-  "$dir/tx" onboard </dev/tty || echo "Run \`$tx onboard\` any time to finish setting up."
-else
-  cat <<EOF
+cat <<EOF
 
-Next, set tx up (your AI apps, what you want to learn, what to follow):
-  $tx onboard
+Next, run this to set tx up (your AI apps, what you want to learn, what to follow):
+  $tx
 EOF
-fi

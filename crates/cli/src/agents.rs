@@ -191,6 +191,17 @@ pub fn setup(target: Target) -> Result<()> {
             let mut config: toml_edit::DocumentMut = text
                 .parse()
                 .with_context(|| format!("{} is not valid TOML", path.display()))?;
+            // The tx plugin already brings the server and the skill; adding them again would
+            // load tx twice.
+            let plugin = config
+                .get("plugins")
+                .and_then(|p| p.get("tx@tx"))
+                .and_then(|t| t.get("enabled"))
+                .and_then(|e| e.as_bool());
+            if plugin == Some(true) {
+                println!("tx is already in Codex through its plugin; nothing to add.");
+                return Ok(());
+            }
             let servers = config["mcp_servers"].or_insert(toml_edit::table());
             servers
                 .as_table_mut()

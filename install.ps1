@@ -15,11 +15,4 @@ if (($userPath -split ";") -notcontains $dir) {
 }
 Write-Host "Installed $(& $exe --version) to $exe"
 Write-Host ""
-# Set up right away in an interactive console; TX_NO_ONBOARD=1 skips it.
-if (-not $env:TX_NO_ONBOARD -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
-  & $exe onboard
-  if ($LASTEXITCODE -ne 0) { Write-Host "Run '$exe onboard' any time to finish setting up." }
-} else {
-  Write-Host "Next, set tx up (your AI apps, what you want to learn, what to follow):"
-  Write-Host "  $exe onboard"
-}
+Write-Host "Next, open a new terminal and run 'tx' to set it up (your AI apps, what you want to learn, what to follow)."
