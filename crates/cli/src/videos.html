@@ -174,6 +174,19 @@
   .summary-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
   .summary-list li { display: flex; gap: 8px; }
   .summary-list li::before { content: "✓"; color: var(--watch); font-weight: 700; }
+  /* Compact: what a step needs and nothing more, for apps that give the panel little height. */
+  .setup.compact { padding-top: 12px; padding-bottom: 12px; }
+  .setup.compact .setup-head { margin-bottom: 8px; }
+  .setup.compact .setup-head .side > span, .setup.compact .lead { display: none; }
+  .setup.compact .rail { margin-bottom: 10px; }
+  .setup.compact .setup h2, .setup.compact h2 { margin-bottom: 8px; }
+  .setup.compact textarea { min-height: 60px; }
+  .setup.compact .examples-label { display: inline; margin: 0 8px 0 0 !important; }
+  .setup.compact .examples { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .setup.compact .examples button { padding: 3px 10px; border-radius: 999px; }
+  .setup.compact .examples button span { display: none; }
+  .setup.compact .examples button b { font-size: 11.5px; color: var(--muted); }
+  .setup.compact .actions { margin-top: 10px; }
   @media (max-width: 760px) {
     .hero { grid-template-columns: 132px 1fr; gap: 12px; }
     .hero h2 { font-size: 15.5px; }
@@ -388,6 +401,7 @@
       }));
       const head = el("div", { class: "setup-head" }, el("b", {}, "Set up tx"), el("div", { class: "side" }, el("span", {}, "Two minutes, then your first brief"), expand));
       panel.replaceChildren(head, nav, ...({ about, follow, daily, done: finished })[step]().filter(Boolean));
+      fit();
     };
 
     function about() {
@@ -400,13 +414,13 @@
         act([["set_profile", { profile: text }]], `Use tx: save my profile: "${text}". Then continue my onboarding.`);
       });
       const examples = el("div", { class: "examples" }, EXAMPLES.map(([role, x]) => {
-        const b = el("button", { type: "button", title: "Start from this, then make it yours" }, el("b", {}, role), el("span", {}, x));
+        const b = el("button", { type: "button", title: `${x}\n\nClick to start from this, then make it yours.` }, el("b", {}, role), el("span", {}, x));
         b.addEventListener("click", () => { box.value = x; box.focus(); });
         return b;
       }));
       return [el("h2", {}, "Who are you, and what do you want to learn?"),
-        el("p", { class: "hint" }, "Every video and episode is scored against this. Name your role, the topics you care about and what to skip."),
-        box, el("p", { class: "hint", style: "margin:10px 0 0" }, "Or start from an example:"), examples, el("div", { class: "actions" }, save)];
+        el("p", { class: "hint lead" }, "Every video and episode is scored against this. Name your role, the topics you care about and what to skip."),
+        box, el("p", { class: "hint examples-label", style: "margin:10px 0 0" }, "Or start from an example:"), examples, el("div", { class: "actions" }, save)];
     }
 
     /**
@@ -434,7 +448,7 @@
         el("div", { class: "source" }, el("b", {}, "A channel or podcast", el("span", {}, "By name, @handle or link")), el("div", { class: "row2" }, names, add)));
       if (!has) {
         return [el("h2", {}, "What should tx follow?"),
-          el("p", { class: "hint" }, "Only what you follow gets analyzed. You can add more later."), adders];
+          el("p", { class: "hint lead" }, "Only what you follow gets analyzed. You can add more later."), adders];
       }
 
       const picked = new Set(data.channels.filter((c) => c.watching || c.suggested).map((c) => c.id));
@@ -489,7 +503,7 @@
       const skip = el("button", { type: "button", class: "quiet" }, "Not now");
       skip.addEventListener("click", () => show("done"));
       return [el("h2", {}, data.daily_brief ? "Your daily brief is on" : "Get a brief every morning?"),
-        el("p", { class: "hint" }, "It runs on this computer, even when this app is closed."),
+        el("p", { class: "hint lead" }, "It runs on this computer, even when this app is closed."),
         !data.can_schedule && el("p", { class: "hint" }, "This needs Claude Code or Codex installed. You can still ask for your brief here any time."),
         el("div", { class: "actions" }, time, on, skip), !data.daily_brief && when];
     }
@@ -516,6 +530,18 @@
     root.className = "cap";
     root.replaceChildren(panel);
     show(step);
+    new ResizeObserver(fit).observe(panel);
+  }
+
+  /**
+   * Apps give the panel a fixed height, and their fonts make the same layout taller or shorter.
+   * When a step doesn't fit, drop to the compact layout rather than make the whole panel scroll.
+   */
+  function fit() {
+    const panel = document.querySelector(".setup");
+    if (!panel) return;
+    panel.classList.remove("compact");
+    if (panel.scrollHeight > panel.clientHeight + 1) panel.classList.add("compact");
   }
 
   /** One video: shown in full. More: a list grouped Watch, Skim, Skip (videos arrive in that order) with the selected video beside it. */
