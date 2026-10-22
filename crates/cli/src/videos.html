@@ -20,6 +20,8 @@
     --gray: light-dark(#6b7280, #9ca3af);
     --gray-bg: light-dark(#f3f4f6, #37415199);
     --radius: var(--border-radius-lg, 12px);
+    /* Height of the list + detail view; set from the host's max height when it gives one. */
+    --pane-h: 620px;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: transparent; }
@@ -29,9 +31,10 @@
     padding: 2px;
   }
   a { color: inherit; text-decoration: none; cursor: pointer; }
-  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
   [hidden] { display: none !important; }
   :focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 6px; }
+
   .bar { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; margin: 0 2px 10px; }
   .head { display: flex; align-items: baseline; gap: 8px; color: var(--muted); font-size: 13px; }
   .head b { color: var(--fg); font-weight: 650; letter-spacing: .02em; }
@@ -40,65 +43,71 @@
   .chips button:hover { color: var(--fg); }
   .chips button[aria-pressed="true"] { background: var(--card); color: var(--fg); }
   .chips span { margin-left: 4px; color: var(--faint); font-variant-numeric: tabular-nums; }
-  .list { display: grid; gap: 8px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; }
-  .card.open { padding: 12px; }
-  .top { display: grid; grid-template-columns: 176px 1fr auto; gap: 12px; align-items: start; }
-  .card.open .top { grid-template-columns: 224px 1fr auto; align-items: start; gap: 14px; }
-  .solo .top, .solo.open .top { grid-template-columns: 224px 1fr; }
-  .card:not(.solo) .top { cursor: pointer; }
-  .thumb { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: var(--chip); }
-  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .2s; }
-  .thumb:hover img { transform: scale(1.04); }
+
+  /* List on the left, the selected video on the right; each scrolls on its own. */
+  .split { display: grid; grid-template-columns: minmax(260px, 36%) 1fr; height: var(--pane-h); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--card); }
+  .list { overflow-y: auto; border-right: 1px solid var(--line); padding: 6px; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; }
+  .item { display: grid; grid-template-columns: 104px 1fr; gap: 10px; padding: 6px; border-radius: 8px; width: 100%; align-items: start; }
+  .item:hover { background: var(--chip); }
+  .item[aria-selected="true"] { background: var(--chip); box-shadow: inset 3px 0 0 var(--accent, var(--fg)); }
+  .item .thumb { border-radius: 6px; }
+  .item .meta { font-size: 11.5px; }
+  .item h3 { font-size: 13px; line-height: 1.3; -webkit-line-clamp: 2; }
+  .item .row { gap: 6px; }
+  .detail { overflow-y: auto; padding: 16px 18px 18px; scrollbar-width: thin; }
+  .back { display: none; margin-bottom: 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .back:hover { color: var(--fg); }
+  .solo { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 16px 18px; }
+
+  .thumb { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: var(--chip); }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .thumb .len { position: absolute; right: 5px; bottom: 5px; background: #000c; color: #fff; font-size: 11px; font-weight: 600; padding: 0 4px; border-radius: 4px; font-variant-numeric: tabular-nums; }
-  .thumb .play { position: absolute; inset: 0; display: grid; place-items: center; opacity: 0; transition: opacity .2s; background: #0004; }
-  .thumb:hover .play { opacity: 1; }
-  .play svg { width: 40px; height: 40px; filter: drop-shadow(0 2px 6px #0008); }
-  .card:not(.open) .play svg { width: 28px; height: 28px; }
+  a.thumb img { transition: transform .2s; }
+  a.thumb:hover img { transform: scale(1.03); }
+  a.thumb .play { position: absolute; inset: 0; display: grid; place-items: center; opacity: 0; transition: opacity .2s; background: #0004; }
+  a.thumb:hover .play { opacity: 1; }
+  .play svg { width: 48px; height: 48px; filter: drop-shadow(0 2px 6px #0008); }
+
   .info { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .badge { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 1px 8px; border-radius: 999px; }
+  .badge { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 0 7px; border-radius: 999px; line-height: 18px; }
   .watch { color: var(--green); background: var(--green-bg); }
   .skim { color: var(--amber); background: var(--amber-bg); }
   .skip, .none { color: var(--gray); background: var(--gray-bg); }
   /* The kind class (watch/skim/skip) sets the color; the bar segments use it. */
   .score { display: inline-flex; gap: 3px; align-items: center; padding: 0; background: none !important; }
   .score i { width: 12px; height: 5px; border-radius: 3px; background: var(--chip); }
-  .score i.on { background: currentColor; }
+  .item .score i { width: 9px; height: 4px; background: var(--line); }
+  .score i.on { background: currentColor !important; }
   .num { font-size: 12px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
-  h3 { margin: 0; font-size: 14.5px; line-height: 1.35; font-weight: 650; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; }
-  .card.open h3 { font-size: 15.5px; -webkit-line-clamp: 2; }
+  h3, h2 { margin: 0; font-weight: 650; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; }
+  h2 { font-size: 17px; line-height: 1.35; -webkit-line-clamp: 3; }
   .meta { font-size: 12.5px; color: var(--faint); }
-  .verdict { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
-  .card:not(.open) .verdict { display: none; }
-  /* Collapsed preview: what the video says and the one thing it means for you. Open cards show both in full. */
-  .preview { display: grid; gap: 3px; margin-top: 2px; font-size: 13px; }
-  .card.open .preview { display: none; }
-  .summary, .key { margin: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; }
-  .summary { color: var(--muted); -webkit-line-clamp: 2; }
-  .key { -webkit-line-clamp: 2; }
-  .key b { margin-right: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
-  .key .t { margin-right: 6px; }
-  .toggle { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; color: var(--faint); }
-  .toggle:hover { background: var(--chip); color: var(--fg); }
-  .toggle svg { width: 16px; height: 16px; transition: transform .15s; }
-  .card.open .toggle svg { transform: rotate(180deg); }
-  .body { display: none; flex-direction: column; gap: 12px; margin-top: 12px; }
-  .card.open .body { display: flex; }
+
+  .hero { display: grid; grid-template-columns: minmax(0, 260px) 1fr; gap: 16px; align-items: start; margin-bottom: 14px; }
+  .verdict { margin: 4px 0 0; color: var(--muted); }
+  .sections { display: flex; flex-direction: column; gap: 14px; }
   .decision { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--chip); font-size: 13.5px; color: var(--muted); }
   .decision > b { margin-right: 6px; color: var(--fg); }
-  .decision > .t { margin-right: 6px; }
+  .decision > .t { margin-right: 6px; background: var(--card); }
   .label { display: block; margin-bottom: 4px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
   .tldr { margin: 0; }
-  ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; }
   li { display: grid; grid-template-columns: 58px 1fr; gap: 8px; align-items: baseline; }
   .t { justify-self: start; font: 600 12px/1.6 var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace); padding: 0 6px; border-radius: 5px; background: var(--chip); color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .decision .t { background: var(--card); }
   a.t:hover { background: var(--line); }
-  .pending { color: var(--faint); font-style: italic; }
-  @media (max-width: 560px) {
-    .top, .card.open .top { grid-template-columns: 112px 1fr auto; }
-    .solo .top, .solo.open .top { grid-template-columns: 1fr; }
+  .pending { color: var(--faint); font-style: italic; margin: 0; }
+
+  @media (max-width: 820px) {
+    .hero { grid-template-columns: 1fr; }
+    .hero .thumb { max-width: 420px; }
+  }
+  /* Narrow: one pane at a time, the list first, a video after picking it. */
+  @media (max-width: 620px) {
+    .split { grid-template-columns: 1fr; }
+    .list { border-right: 0; }
+    .split:not(.showing) .detail, .split.showing .list { display: none; }
+    .back { display: inline-block; }
   }
 </style>
 </head>
@@ -121,11 +130,15 @@
     request("ui/open-link", { url }).catch(() => window.open(url, "_blank", "noopener"));
   }
 
+  let locale, timeZone;
+
   function applyContext(ctx) {
     if (!ctx) return;
     if (ctx.theme) document.documentElement.style.colorScheme = ctx.theme;
     if (ctx.locale) locale = ctx.locale;
     if (ctx.timeZone) timeZone = ctx.timeZone;
+    const max = ctx.containerDimensions && (ctx.containerDimensions.height || ctx.containerDimensions.maxHeight);
+    if (max) document.documentElement.style.setProperty("--pane-h", `${Math.max(360, Math.min(680, max - 60))}px`);
     const vars = ctx.styles && ctx.styles.variables;
     if (vars) for (const [k, v] of Object.entries(vars)) if (v) document.documentElement.style.setProperty(k, v);
     const fonts = ctx.styles && ctx.styles.css && ctx.styles.css.fonts;
@@ -142,8 +155,6 @@
     return e;
   }
 
-  let locale, timeZone;
-
   function ago(d) {
     const s = (Date.now() - d) / 1000;
     const units = [[31536000, "year"], [2592000, "month"], [604800, "week"], [86400, "day"], [3600, "hour"], [60, "minute"]];
@@ -151,89 +162,110 @@
     return "just now";
   }
 
-  /** "22 Oct 2026, 14:05 · 2 hours ago", in the user's locale and time zone. */
-  function released(iso) {
+  /** Release time in the user's locale and time zone: "22 Oct 2026, 14:05 · 2 hours ago"; `short` drops the time of day. */
+  function released(iso, short) {
     const d = new Date(iso);
     if (isNaN(d)) return "";
+    const opts = short ? { day: "numeric", month: "short" } : { dateStyle: "medium", timeStyle: "short" };
     let exact;
     try {
-      exact = d.toLocaleString(locale, { dateStyle: "medium", timeStyle: "short", timeZone });
+      exact = d.toLocaleString(locale, { ...opts, timeZone });
     } catch {
-      exact = d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+      exact = d.toLocaleString(undefined, opts);
     }
-    return `${exact} · ${ago(d)}`;
+    return short ? exact : `${exact} · ${ago(d)}`;
   }
 
   const PLAY = '<svg viewBox="0 0 68 48"><path d="M66.5 7.7a8.5 8.5 0 0 0-6-6C55.3.3 34 .3 34 .3s-21.3 0-26.5 1.4a8.5 8.5 0 0 0-6 6C.1 12.9.1 24 .1 24s0 11.1 1.4 16.3a8.5 8.5 0 0 0 6 6C12.7 47.7 34 47.7 34 47.7s21.3 0 26.5-1.4a8.5 8.5 0 0 0 6-6C67.9 35.1 67.9 24 67.9 24s0-11.1-1.4-16.3z" fill="#f00"/><path d="M45 24 27 14v20z" fill="#fff"/></svg>';
-
-  const CHEVRON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m4 6 4 4 4-4"/></svg>';
   const LABELS = { watch: "Watch", skim: "Skim", skip: "Skip", none: "Not analyzed" };
   const kindOf = (v) => v.analyzed ? (["watch", "skim", "skip"].includes(v.advice) ? v.advice : "skip") : "none";
   const stamp = (at, url, title) => el(url ? "a" : "span", { class: "t", "data-href": url, title: url ? title : null }, at);
 
-  let seq = 0;
-  /** One video. Collapsed it is a row (thumbnail, score, title, verdict); open it adds the advice, TL;DR and takeaways. */
-  function card(v, open, solo) {
-    const kind = kindOf(v);
-    const r = v.relevance ?? 0;
-    const bodyId = `v${++seq}`;
-    const play = el("span", { class: "play" });
-    play.innerHTML = PLAY;
-    const thumb = el("a", { class: "thumb", "data-href": v.url, title: "Open on YouTube" },
+  function thumb(v, link) {
+    const t = el(link ? "a" : "span", { class: "thumb", "data-href": link ? v.url : null, title: link ? "Open on YouTube" : null },
       el("img", { src: v.thumbnail, alt: "", loading: "lazy" }),
-      v.length && el("span", { class: "len" }, v.length), play);
-    const score = v.analyzed && el("span", { class: `score ${kind}`, title: `${r} of 5 for you` },
-      [1, 2, 3, 4, 5].map((i) => el("i", { class: i <= r ? "on" : null })));
-    const key = v.takeaways && v.takeaways[0];
-    const preview = v.analyzed && (v.tldr || key) && el("div", { class: "preview" },
-      v.tldr && el("p", { class: "summary" }, v.tldr),
-      key && el("p", { class: "key" }, el("b", {}, "For you"), key.at && stamp(key.at, key.url, `Play from ${key.at}`), key.text));
-    const info = el("div", { class: "info" },
-      el("div", { class: "row" }, el("span", { class: `badge ${kind}` }, LABELS[kind]), score, v.analyzed && el("span", { class: "num" }, `${r}/5`)),
-      el("h3", { title: v.title }, v.title),
-      el("div", { class: "meta", title: v.published }, [v.channel, released(v.published)].filter(Boolean).join(" · ")),
-      v.analyzed ? v.verdict && el("p", { class: "verdict" }, v.verdict) : el("p", { class: "pending" }, "Ask your agent to analyze this one."),
-      preview);
-    const toggle = !solo && el("button", { type: "button", class: "toggle", "aria-controls": bodyId, "aria-label": `Details: ${v.title}` });
-    if (toggle) toggle.innerHTML = CHEVRON;
-    const top = el("div", { class: "top" }, thumb, info, toggle);
-
-    const body = el("div", { class: "body", id: bodyId });
-    if (v.analyzed) {
-      if (v.reason) {
-        const range = kind === "skim" && v.skim_from && stamp(v.skim_to ? `${v.skim_from}-${v.skim_to}` : v.skim_from, v.skim_url, `Play from ${v.skim_from}`);
-        body.append(el("p", { class: "decision" }, el("b", {}, LABELS[kind]), range, v.reason));
-      }
-      if (v.tldr) body.append(el("div", {}, el("span", { class: "label" }, "TL;DR"), el("p", { class: "tldr" }, v.tldr)));
-      if (v.takeaways && v.takeaways.length) {
-        body.append(el("div", {}, el("span", { class: "label" }, "For you"),
-          el("ul", {}, v.takeaways.map((t) => el("li", {}, t.at ? stamp(t.at, t.url, `Play from ${t.at}`) : el("span"), el("span", {}, t.text))))));
-      }
-    }
-
-    const art = el("article", { class: `card${solo ? " solo" : ""}`, "data-kind": kind }, top, body);
-    const setOpen = (o) => {
-      art.classList.toggle("open", o);
-      if (toggle) toggle.setAttribute("aria-expanded", String(o));
-    };
-    setOpen(open && v.analyzed);
-    if (toggle && v.analyzed) {
-      top.addEventListener("click", (e) => {
-        if (!e.target.closest("[data-href]")) setOpen(!art.classList.contains("open"));
-      });
-    } else if (toggle) toggle.hidden = true;
-    return art;
+      v.length && el("span", { class: "len" }, v.length));
+    if (link) { const p = el("span", { class: "play" }); p.innerHTML = PLAY; t.append(p); }
+    return t;
   }
 
-  /** Up to two videos are all open. More start as rows with only the top pick open (the first to watch, else the first analyzed), plus a filter by advice. */
+  function scoreRow(v) {
+    const kind = kindOf(v);
+    const r = v.relevance ?? 0;
+    return el("div", { class: "row" },
+      el("span", { class: `badge ${kind}` }, LABELS[kind]),
+      v.analyzed && el("span", { class: `score ${kind}`, title: `${r} of 5 for you` }, [1, 2, 3, 4, 5].map((i) => el("i", { class: i <= r ? "on" : null }))),
+      v.analyzed && el("span", { class: "num" }, `${r}/5`));
+  }
+
+  /** One row of the list: thumbnail, advice and score, title, channel and date. */
+  function item(v) {
+    return el("button", { type: "button", role: "option", class: "item", style: `--accent: var(--${{ watch: "green", skim: "amber" }[kindOf(v)] || "gray"})`, "aria-selected": "false", "data-kind": kindOf(v), title: v.title },
+      thumb(v, false),
+      el("div", { class: "info" }, scoreRow(v), el("h3", {}, v.title),
+        el("div", { class: "meta" }, [v.channel, released(v.published, true)].filter(Boolean).join(" · "))));
+  }
+
+  /** The selected video in full: thumbnail that opens it, verdict, advice, TL;DR, and the takeaways for the user. */
+  function detail(v) {
+    const kind = kindOf(v);
+    const hero = el("div", { class: "hero" }, thumb(v, true),
+      el("div", { class: "info" }, scoreRow(v), el("h2", { title: v.title }, v.title),
+        el("div", { class: "meta", title: v.published }, [v.channel, released(v.published)].filter(Boolean).join(" · ")),
+        v.analyzed && v.verdict && el("p", { class: "verdict" }, v.verdict)));
+    const sections = el("div", { class: "sections" });
+    if (!v.analyzed) sections.append(el("p", { class: "pending" }, "Not analyzed yet. Ask your agent to analyze this one."));
+    if (v.analyzed && v.reason) {
+      const range = kind === "skim" && v.skim_from && stamp(v.skim_to ? `${v.skim_from}-${v.skim_to}` : v.skim_from, v.skim_url, `Play from ${v.skim_from}`);
+      sections.append(el("p", { class: "decision" }, el("b", {}, LABELS[kind]), range, v.reason));
+    }
+    if (v.analyzed && v.tldr) sections.append(el("div", {}, el("span", { class: "label" }, "TL;DR"), el("p", { class: "tldr" }, v.tldr)));
+    if (v.analyzed && v.takeaways && v.takeaways.length) {
+      sections.append(el("div", {}, el("span", { class: "label" }, "For you"),
+        el("ul", {}, v.takeaways.map((t) => el("li", {}, t.at ? stamp(t.at, t.url, `Play from ${t.at}`) : el("span"), el("span", {}, t.text))))));
+    }
+    return [hero, sections];
+  }
+
+  /** One video: shown in full. More: a scrollable list with the selected video beside it, starting with the top pick (videos arrive sorted Watch, Skim, Skip). */
   function render(data) {
     if (!data || !Array.isArray(data.videos) || !data.videos.length) return;
     const videos = data.videos;
     const worthFrom = data.worth_from ?? 3;
     const n = videos.length;
     const worth = videos.filter((v) => v.analyzed && (v.relevance ?? 0) >= worthFrom).length;
-    const pick = videos.find((v) => kindOf(v) === "watch") ?? videos.find((v) => v.analyzed);
-    const cards = videos.map((v) => card(v, n <= 2 || v === pick, n === 1));
+    const head = el("div", { class: "head" }, el("b", {}, "tx"), `${n} video${n > 1 ? "s" : ""}` + (worth ? ` · ${worth} worth your time` : ""));
+    if (n === 1) {
+      root.replaceChildren(el("div", { class: "bar" }, head), el("div", { class: "solo" }, detail(videos[0])));
+      return;
+    }
+
+    const items = videos.map(item);
+    const list = el("div", { class: "list", role: "listbox", "aria-label": "Videos" }, items);
+    const back = el("button", { type: "button", class: "back" }, "← All videos");
+    const pane = el("div", { class: "detail", "aria-live": "polite" });
+    const split = el("div", { class: "split" }, list, pane);
+    let current = -1;
+    const select = (i, show) => {
+      if (i < 0 || i >= n) return;
+      if (current >= 0) items[current].setAttribute("aria-selected", "false");
+      current = i;
+      items[i].setAttribute("aria-selected", "true");
+      items[i].scrollIntoView({ block: "nearest" });
+      pane.replaceChildren(back, ...detail(videos[i]));
+      pane.scrollTop = 0;
+      split.classList.toggle("showing", !!show);
+    };
+    items.forEach((b, i) => b.addEventListener("click", () => select(i, true)));
+    back.addEventListener("click", () => split.classList.remove("showing"));
+    list.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      const step = e.key === "ArrowDown" ? 1 : -1;
+      let i = current;
+      do i += step; while (i >= 0 && i < n && items[i].hidden);
+      if (i >= 0 && i < n) { select(i, false); items[i].focus(); }
+    });
 
     const counts = {};
     for (const v of videos) counts[kindOf(v)] = (counts[kindOf(v)] || 0) + 1;
@@ -248,15 +280,13 @@
         if (!b) return;
         const k = b.dataset.kind;
         for (const x of buttons) x.setAttribute("aria-pressed", String(x === b));
-        for (const c of cards) c.hidden = k !== "all" && c.dataset.kind !== k;
+        items.forEach((it) => { it.hidden = k !== "all" && it.dataset.kind !== k; });
+        if (items[current].hidden) select(items.findIndex((it) => !it.hidden), false);
       });
     }
 
-    root.replaceChildren(
-      el("div", { class: "bar" },
-        el("div", { class: "head" }, el("b", {}, "tx"), `${n} video${n > 1 ? "s" : ""}` + (worth ? ` · ${worth} worth your time` : "")),
-        chips),
-      el("div", { class: "list" }, cards));
+    root.replaceChildren(el("div", { class: "bar" }, head, chips), split);
+    select(0, false);
   }
 
   document.addEventListener("click", (e) => {
