@@ -7,6 +7,8 @@ use anyhow::{Context, Result, bail};
 use chrono::{DateTime, FixedOffset};
 use regex::Regex;
 use rusqlite::params;
+use std::io::Read;
+use std::path::Path;
 use std::sync::LazyLock;
 
 pub struct Entry {
@@ -16,15 +18,26 @@ pub struct Entry {
     pub published: String,
 }
 
+/// How to get subscriptions without browser access; shown when reading the browser fails.
+pub const TAKEOUT_HINT: &str = "Alternative that works on every computer: at https://takeout.google.com click \
+\"Deselect all\", tick \"YouTube and YouTube Music\", click \"All YouTube data included\" and keep only \
+\"subscriptions\", then export and download. Import the downloaded .zip (or the subscriptions.csv inside it) with \
+import_subscriptions `file`.";
+
 /// Add every channel the browser's logged-in YouTube account subscribes to (not watched yet).
-pub async fn import_subscriptions(db: &Db, browser: &str) -> Result<usize> {
+/// Returns (channels found, of which new to tx).
+pub async fn import_subscriptions(db: &Db, browser: &str) -> Result<(usize, usize)> {
     let mut args = ytdlp::cookies_args(browser);
     args.extend([
         "--flat-playlist".into(),
         "-J".into(),
         "https://www.youtube.com/feed/channels".into(),
     ]);
-    let info = ytdlp::json(args).await?;
+    let info = ytdlp::json(args).await.map_err(|e| {
+        anyhow::anyhow!(
+            "couldn't read YouTube subscriptions from {browser} ({e:#}); is it signed in to YouTube?\n\n{TAKEOUT_HINT}"
+        )
+    })?;
     let found: Vec<(String, String)> = info["entries"]
         .as_array()
         .into_iter()
@@ -37,13 +50,76 @@ pub async fn import_subscriptions(db: &Db, browser: &str) -> Result<usize> {
         })
         .collect();
     if found.is_empty() {
-        bail!("no subscriptions found; is {browser} signed in to YouTube?");
+        bail!("no subscriptions found; is {browser} signed in to YouTube?\n\n{TAKEOUT_HINT}");
     }
+    save_channels(db, &found)
+}
+
+/// Add the channels of a Google Takeout export: the downloaded .zip or its subscriptions.csv.
+/// Returns (channels found, of which new to tx).
+pub fn import_takeout(db: &Db, path: &Path) -> Result<(usize, usize)> {
+    let is_zip = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("zip"));
+    let found = if is_zip {
+        // Folder and file names are localized, so look for the CSV that lists channels.
+        let mut zip = zip::ZipArchive::new(
+            std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?,
+        )?;
+        let mut found = Vec::new();
+        for i in 0..zip.len() {
+            let mut entry = zip.by_index(i)?;
+            if !entry.name()?.to_lowercase().ends_with(".csv") {
+                continue;
+            }
+            let mut data = Vec::new();
+            entry.read_to_end(&mut data)?;
+            found = takeout_rows(&data);
+            if !found.is_empty() {
+                break;
+            }
+        }
+        found
+    } else {
+        takeout_rows(&std::fs::read(path).with_context(|| format!("reading {}", path.display()))?)
+    };
+    if found.is_empty() {
+        bail!(
+            "no YouTube subscriptions in {}; it should be a Google Takeout export.\n\n{TAKEOUT_HINT}",
+            path.display()
+        );
+    }
+    save_channels(db, &found)
+}
+
+/// (channel id, title) rows of a Takeout subscriptions CSV: id, URL, title (headers are localized).
+fn takeout_rows(data: &[u8]) -> Vec<(String, String)> {
+    csv::ReaderBuilder::new()
+        .flexible(true)
+        .from_reader(data)
+        .records()
+        .filter_map(Result::ok)
+        .filter_map(|r| {
+            let id = r.get(0)?.trim();
+            CHANNEL_ID.is_match(id).then(|| {
+                let title = r
+                    .get(2)
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or(id);
+                (id.to_string(), title.to_string())
+            })
+        })
+        .collect()
+}
+
+fn save_channels(db: &Db, found: &[(String, String)]) -> Result<(usize, usize)> {
     let conn = db.lock().unwrap();
-    for (id, title) in &found {
+    let known = db::channels(&conn)?.len();
+    for (id, title) in found {
         db::upsert_channel(&conn, id, title)?;
     }
-    Ok(found.len())
+    Ok((found.len(), db::channels(&conn)?.len() - known))
 }
 
 static CHANNEL_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^UC[\w-]{22}$").unwrap());
@@ -51,6 +127,16 @@ static CHANNEL_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^UC[\w-]{22}$
 /// Watch a channel given @handle, channel id, channel URL, or any of its video URLs.
 pub async fn add_channel(db: &Db, reference: &str) -> Result<String> {
     let r = reference.trim();
+    if CHANNEL_ID.is_match(r) {
+        // Already imported: no lookup needed.
+        let conn = db.lock().unwrap();
+        if db::set_enabled(&conn, r, true)? {
+            return Ok(db::channels(&conn)?
+                .into_iter()
+                .find(|c| c.id == r)
+                .map_or_else(|| r.to_string(), |c| c.title));
+        }
+    }
     let url = if r.starts_with('@') {
         format!("https://www.youtube.com/{r}")
     } else if CHANNEL_ID.is_match(r) {
@@ -208,5 +294,31 @@ mod tests {
         assert_eq!(initial_status("2026-10-20T08:00:00+02:00", since), "queued");
         assert_eq!(initial_status("garbage", since), "skipped");
         assert_eq!(initial_status("2026-10-20T08:00:00+00:00", None), "skipped");
+    }
+
+    #[test]
+    fn takeout_csv_rows_with_localized_headers_and_quoted_titles() {
+        let csv = "ID kanálu,Adresa URL kanálu,Název kanálu\n\
+                   UCsBjURrPoezykLs9EqgamOA,http://www.youtube.com/channel/UCsBjURrPoezykLs9EqgamOA,Fireship\n\
+                   UCbRP3c757lWg9M-U7TyEkXA,http://www.youtube.com/channel/UCbRP3c757lWg9M-U7TyEkXA,\"Theo - t3.gg, live\"\n\
+                   UCshortid,http://www.youtube.com/channel/UCshortid,Broken\n\
+                   UCX6OQ3DkcsbYNE6H8uQQuVA,http://www.youtube.com/channel/UCX6OQ3DkcsbYNE6H8uQQuVA,\n\n";
+        assert_eq!(
+            takeout_rows(csv.as_bytes()),
+            vec![
+                (
+                    "UCsBjURrPoezykLs9EqgamOA".to_string(),
+                    "Fireship".to_string()
+                ),
+                (
+                    "UCbRP3c757lWg9M-U7TyEkXA".to_string(),
+                    "Theo - t3.gg, live".to_string()
+                ),
+                (
+                    "UCX6OQ3DkcsbYNE6H8uQQuVA".to_string(),
+                    "UCX6OQ3DkcsbYNE6H8uQQuVA".to_string()
+                ),
+            ]
+        );
     }
 }

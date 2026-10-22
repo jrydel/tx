@@ -46,6 +46,12 @@ Start a new chat and say, in your own words:
 
 > Use tx. I'm a backend engineer building LLM features; I want concrete agent and eval techniques and notable model launches; skip hype. Watch @fireship and @t3dotgg.
 
+Or let it pick from the channels you already follow:
+
+> Use tx: import my YouTube subscriptions from Chrome and suggest which to watch.
+
+It suggests the channels that fit what you want to learn and watches them once you confirm. If it can't read your browser (it needs to be signed in to YouTube), export your subscriptions instead: at [Google Takeout](https://takeout.google.com) click **Deselect all**, tick **YouTube and YouTube Music**, click **All YouTube data included** and keep only **subscriptions**, then export, download, and tell it where the .zip is.
+
 Then, whenever you like:
 
 > Use tx to check my channels for new videos and analyze them for me.
@@ -121,8 +127,8 @@ Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/s
 | Tool | Does |
 |---|---|
 | `get_profile` / `set_profile` | what the user wants to learn |
-| `watch_channel` / `unwatch_channel` / `list_channels` | channels by `@handle`, URL or id |
-| `import_subscriptions` | read YouTube subscriptions from a signed-in browser (`chrome`, `firefox`, `chrome:Profile 2`…) |
+| `watch_channel` / `unwatch_channel` / `list_channels` | channels by `@handle`, URL or id (several at once) |
+| `import_subscriptions` | import your YouTube subscriptions from a signed-in browser (`chrome`, `firefox`, `chrome:Profile 2`…) or a Google Takeout export |
 | `check_new_videos` | poll watched channels (RSS); list uploads waiting for analysis |
 | `get_transcript` | timestamped transcript of a tx video or any URL, in parts for long videos |
 | `save_analysis` / `skip_video` | store the agent's score, verdict, TL;DR, takeaways and watch advice |

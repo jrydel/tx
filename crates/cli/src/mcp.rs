@@ -32,14 +32,16 @@ fn tools() -> Value {
           "inputSchema": { "type": "object", "properties": {} } },
         { "name": "set_profile", "description": "Save the user's description of who they are and what they want to learn.",
           "inputSchema": { "type": "object", "properties": { "profile": { "type": "string" } }, "required": ["profile"] } },
-        { "name": "watch_channel", "description": "Start watching a YouTube channel. Only uploads published from now on are analyzed automatically.",
-          "inputSchema": { "type": "object", "properties": { "channel": { "type": "string", "description": "@handle, channel URL, channel id, or a URL of one of its videos" } }, "required": ["channel"] } },
+        { "name": "watch_channel", "description": "Start watching YouTube channels. Only uploads published from now on are analyzed automatically; recent_videos still lists earlier ones.",
+          "inputSchema": { "type": "object", "properties": { "channels": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Each an @handle, channel URL, channel id (from list_channels), or a URL of one of its videos" } }, "required": ["channels"] } },
         { "name": "unwatch_channel", "description": "Stop watching a channel.",
           "inputSchema": { "type": "object", "properties": { "channel_id": { "type": "string" } }, "required": ["channel_id"] } },
         { "name": "list_channels", "description": "Channels tx knows about.",
           "inputSchema": { "type": "object", "properties": { "watching_only": { "type": "boolean", "default": true } } } },
-        { "name": "import_subscriptions", "description": "Import the YouTube subscriptions of a browser signed in to YouTube on this computer (not watched until enabled with watch_channel).",
-          "inputSchema": { "type": "object", "properties": { "browser": { "type": "string", "description": "chrome, firefox, edge, safari, brave; another profile as chrome:Profile 2" } }, "required": ["browser"] } },
+        { "name": "import_subscriptions", "description": "Import the user's YouTube subscriptions, either from a browser signed in to YouTube on this computer or from a Google Takeout export. Imported channels are not watched until the user picks them.",
+          "inputSchema": { "type": "object", "properties": {
+            "browser": { "type": "string", "description": "chrome, firefox, edge, safari, brave; another profile as chrome:Profile 2" },
+            "file": { "type": "string", "description": "Path to a Google Takeout .zip or its subscriptions.csv" } } } },
         { "name": "check_new_videos", "description": "Check watched channels for new uploads and list every video waiting for analysis.",
           "inputSchema": { "type": "object", "properties": {} } },
         { "name": "get_transcript", "description": "Timestamped transcript ([mm:ss] paragraphs) of a tx video id or any video URL (YouTube, X, Vimeo…). Long ones come in parts.",
@@ -116,10 +118,29 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
             db::save_settings(&conn, &s)?;
             "Saved.".into()
         }
-        "watch_channel" => format!(
-            "Watching {}.",
-            feeds::add_channel(db, str_arg(args, "channel")?).await?
-        ),
+        "watch_channel" => {
+            let refs: Vec<&str> = args["channels"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect();
+            if refs.is_empty() {
+                bail!("missing channels");
+            }
+            let (mut watching, mut failed) = (Vec::new(), Vec::new());
+            for r in refs {
+                match feeds::add_channel(db, r).await {
+                    Ok(title) => watching.push(title),
+                    Err(e) => failed.push(format!("{r}: {e:#}")),
+                }
+            }
+            let mut text = format!("Watching {}.", watching.join(", "));
+            if !failed.is_empty() {
+                text.push_str(&format!("\nNot found:\n{}", failed.join("\n")));
+            }
+            text
+        }
         "unwatch_channel" => {
             if !db::set_enabled(&db.lock().unwrap(), str_arg(args, "channel_id")?, false)? {
                 bail!("no such channel");
@@ -136,9 +157,26 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
             serde_json::to_string_pretty(&list)?
         }
         "import_subscriptions" => {
-            let n = feeds::import_subscriptions(db, str_arg(args, "browser")?).await?;
+            let (found, new) = match (args["file"].as_str(), args["browser"].as_str()) {
+                (Some(f), _) if !f.trim().is_empty() => {
+                    let f = f.trim();
+                    let path = f
+                        .strip_prefix("~/")
+                        .and_then(|rest| dirs::home_dir().map(|h| h.join(rest)))
+                        .unwrap_or_else(|| f.into());
+                    feeds::import_takeout(db, &path)?
+                }
+                (_, Some(b)) if !b.trim().is_empty() => {
+                    feeds::import_subscriptions(db, b.trim()).await?
+                }
+                _ => bail!("pass browser or file.\n\n{}", feeds::TAKEOUT_HINT),
+            };
             format!(
-                "Imported {n} subscriptions. Watch the ones the user wants with watch_channel (use list_channels with watching_only=false for ids)."
+                "Imported {found} subscriptions ({new} new to tx); imported channels aren't watched until chosen. Next: read the profile with \
+                 get_profile, list the channels with list_channels (watching_only=false), and suggest the ones that fit \
+                 the profile, with a few words on why. Watch them with watch_channel only after the user confirms or \
+                 changes the list; don't watch all of them unless the user asks, since every watched channel's new \
+                 videos get analyzed."
             )
         }
         "check_new_videos" => {

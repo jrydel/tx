@@ -8,7 +8,7 @@ description: Check the YouTube channels watched in tx for new uploads and analyz
 tx (MCP server `tx`) fetches YouTube data on this computer; you do the analysis. Follow these steps.
 
 1. Call `get_profile`. It says who the user is and what they want to learn. If it is empty and you can ask the user, ask for 2-3 sentences and save them with `set_profile`; otherwise judge usefulness for a curious technical generalist.
-2. Call `check_new_videos`. It checks watched channels and returns uploads waiting for analysis. If no channels are watched, tell the user to add some (`watch_channel` takes `@handle`, a channel URL, or one of its video URLs) and stop.
+2. Call `check_new_videos`. It checks watched channels and returns uploads waiting for analysis. If no channels are watched, offer to import the user's YouTube subscriptions (see Choosing channels) or to watch channels they name (`watch_channel` takes `@handle`s, channel URLs, or video URLs), and stop.
 3. For each waiting video, oldest first, at most 15 per run:
    - Call `get_transcript` with the video id. Long transcripts come in parts; fetch every part.
    - If there is no usable transcript, call `skip_video` with the reason and move on.
@@ -24,8 +24,16 @@ tx (MCP server `tx`) fetches YouTube data on this computer; you do the analysis.
 
 When the user asks for a TL;DR of specific or recent videos ("the latest Fireship videos"):
 
-1. Call `get_profile` (unless you already have it in this conversation): scores, verdicts and takeaways are always for this person. Then find the videos with `recent_videos` (pass part of the channel name). For a channel tx doesn't know, `watch_channel` it first. A video URL from a channel tx doesn't know can't be stored: use `get_transcript` with the URL and write the TL;DR, takeaways for the user (with timestamps) and watch advice in your reply.
+1. Call `get_profile` (unless you already have it in this conversation): scores, verdicts and takeaways are always for this person. Then find the videos with `recent_videos` (pass part of the channel name). For a channel tx doesn't know, `watch_channel` it first (the user asked about it, so that counts as choosing it). A video URL from a channel tx doesn't know can't be stored: use `get_transcript` with the URL and write the TL;DR, takeaways for the user (with timestamps) and watch advice in your reply.
 2. Videos already analyzed (status `done`) need no new analysis unless the user asks to redo them. For each other one, `get_transcript` and `save_analysis` exactly as in step 3 above, so it's stored and never redone.
 3. Call `show_videos` with their ids, then reply in at most two sentences.
+
+## Choosing channels
+
+When the user wants their YouTube subscriptions in tx ("import my subscriptions", "use the channels I follow"):
+
+1. Call `import_subscriptions` with their browser (ask which one if you don't know). If it fails, give the user the Google Takeout steps from the error, wait for them to download the export, and import it with `file` (the .zip path is enough).
+2. Call `get_profile`, then `list_channels` with `watching_only` false. Suggest the channels that fit the profile, usually 5-20, one short reason each, and say how many you left out and why. Ask the user to confirm or change the list.
+3. Call `watch_channel` once with all chosen channel ids. Watch everything only if the user asks for it: every watched channel's new uploads are analyzed on their subscription.
 
 Rules: use only the transcript, never guess content. Take timestamps from the transcript's `[mm:ss]` paragraph markers. Write in the language the profile is written in. Be specific: numbers, names, and concrete techniques beat general statements. Whenever you present analyzed videos, use `show_videos` rather than writing them out yourself.
