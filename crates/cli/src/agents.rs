@@ -15,6 +15,14 @@ pub enum Agent {
     Codex,
 }
 
+/// Where the Codex and ChatGPT desktop apps keep their own `codex`, for users who never installed
+/// the CLI.
+const CODEX_IN_APPS: &[&str] = &[
+    "/Applications/Codex.app/Contents/Resources/codex",
+    "/Applications/ChatGPT.app/Contents/Resources/codex",
+    "/usr/lib/chatgpt/resources/codex",
+];
+
 impl Agent {
     fn program(self) -> &'static str {
         match self {
@@ -23,10 +31,23 @@ impl Agent {
         }
     }
 
+    fn find(self) -> Option<PathBuf> {
+        paths::which(self.program()).or_else(|| {
+            (self == Agent::Codex)
+                .then(|| {
+                    CODEX_IN_APPS
+                        .iter()
+                        .map(PathBuf::from)
+                        .find(|p| p.is_file())
+                })
+                .flatten()
+        })
+    }
+
     pub fn detect() -> Result<Agent> {
         [Agent::Claude, Agent::Codex]
             .into_iter()
-            .find(|a| paths::which(a.program()).is_some())
+            .find(|a| a.find().is_some())
             .context("neither Claude Code (claude) nor Codex (codex) is installed")
     }
 }
@@ -47,7 +68,8 @@ fn exe() -> Result<PathBuf> {
 
 /// Screen new videos once with `agent`, streaming its output; returns its exit code.
 pub fn run(agent: Agent) -> Result<i32> {
-    let program = paths::which(agent.program())
+    let program = agent
+        .find()
         .with_context(|| format!("{} is not installed", agent.program()))?;
     let tx = exe()?.display().to_string();
     let data = paths::data_dir().display().to_string();
@@ -116,15 +138,20 @@ pub enum Target {
 }
 
 /// Copy the screen-videos skill where the agent looks for personal skills.
-fn install_skill(agent_home: &str) -> Result<PathBuf> {
-    let dir = dirs::home_dir()
-        .context("no home dir")?
-        .join(agent_home)
-        .join("skills/screen-videos");
+fn install_skill(agent_home: &std::path::Path) -> Result<PathBuf> {
+    let dir = agent_home.join("skills/screen-videos");
     std::fs::create_dir_all(&dir)?;
     let path = dir.join("SKILL.md");
     std::fs::write(&path, SKILL)?;
     Ok(path)
+}
+
+/// Codex's settings folder, shared by the Codex app, CLI and IDE extensions.
+fn codex_home() -> Result<PathBuf> {
+    match std::env::var_os("CODEX_HOME") {
+        Some(h) if !h.is_empty() => Ok(PathBuf::from(h)),
+        _ => Ok(dirs::home_dir().context("no home dir")?.join(".codex")),
+    }
 }
 
 /// Register `tx mcp` (by absolute path, so desktop apps with a minimal PATH find it) and install
@@ -132,46 +159,55 @@ fn install_skill(agent_home: &str) -> Result<PathBuf> {
 pub fn setup(target: Target) -> Result<()> {
     let tx = exe()?.display().to_string();
     match target {
-        Target::ClaudeCode | Target::Codex => {
-            let name = if matches!(target, Target::ClaudeCode) {
-                "claude"
-            } else {
-                "codex"
-            };
-            let program = paths::which(name).with_context(|| format!("{name} is not installed"))?;
-            let scope: &[&str] = if matches!(target, Target::ClaudeCode) {
-                &["--scope", "user"]
-            } else {
-                &[]
-            };
+        Target::ClaudeCode => {
+            let program = paths::which("claude").context(
+                "Claude Code (claude) is not installed; get it at https://claude.com/claude-code",
+            )?;
             let _ = Command::new(&program)
-                .args(["mcp", "remove"])
-                .args(scope)
-                .arg("tx")
+                .args(["mcp", "remove", "--scope", "user", "tx"])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status();
             let ok = Command::new(&program)
-                .args(["mcp", "add"])
-                .args(scope)
-                .args(["tx", "--", &tx, "mcp"])
+                .args(["mcp", "add", "--scope", "user", "tx", "--", &tx, "mcp"])
                 .status()?
                 .success();
             if !ok {
-                bail!("{name} mcp add failed");
+                bail!("claude mcp add failed");
             }
-            let skill = install_skill(if matches!(target, Target::ClaudeCode) {
-                ".claude"
-            } else {
-                ".codex"
-            })?;
-            println!("Installed the screen-videos skill: {}", skill.display());
-            let restart = if matches!(target, Target::Codex) {
-                " Restart the Codex app if it's open."
-            } else {
-                ""
-            };
-            println!("Done: tx is available in {name}.{restart}");
+            let home = dirs::home_dir().context("no home dir")?.join(".claude");
+            println!(
+                "Installed the screen-videos skill: {}",
+                install_skill(&home)?.display()
+            );
+            println!("Done: tx is available in Claude Code.");
+        }
+        Target::Codex => {
+            // Edit config.toml directly: the Codex app reads it too, and many app users don't
+            // have the `codex` command that `codex mcp add` would need.
+            let home = codex_home()?;
+            let path = home.join("config.toml");
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            let mut config: toml_edit::DocumentMut = text
+                .parse()
+                .with_context(|| format!("{} is not valid TOML", path.display()))?;
+            let servers = config["mcp_servers"].or_insert(toml_edit::table());
+            servers
+                .as_table_mut()
+                .with_context(|| format!("mcp_servers in {} is not a table", path.display()))?
+                .set_implicit(true);
+            let mut server = toml_edit::Table::new();
+            server["command"] = toml_edit::value(tx.as_str());
+            server["args"] = toml_edit::value(toml_edit::Array::from_iter(["mcp"]));
+            config["mcp_servers"]["tx"] = toml_edit::Item::Table(server);
+            std::fs::create_dir_all(&home)?;
+            std::fs::write(&path, config.to_string())?;
+            println!("Added tx to {}.", path.display());
+            println!(
+                "Installed the screen-videos skill: {}",
+                install_skill(&home)?.display()
+            );
+            println!("Done: restart the Codex app (or start a new codex session) to load tx.");
         }
         Target::ClaudeDesktop => {
             let path =
