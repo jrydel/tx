@@ -24,7 +24,7 @@ if ! writable "$dir"; then
   echo "  curl -fsSL https://raw.githubusercontent.com/jrydel/tx/master/install.sh | TX_INSTALL_DIR=\"\$HOME/bin\" sh" >&2
   exit 1
 fi
-echo "Downloading $asset…"
+echo "Downloading ${asset}..."
 curl -fsSL "https://github.com/jrydel/tx/releases/latest/download/$asset" -o "$dir/tx.tmp"
 chmod +x "$dir/tx.tmp"
 mv "$dir/tx.tmp" "$dir/tx"

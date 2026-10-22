@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 $dir = if ($env:TX_INSTALL_DIR) { $env:TX_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\tx" }
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 $exe = Join-Path $dir "tx.exe"
-Write-Host "Downloading tx…"
+Write-Host "Downloading tx..."
 Invoke-WebRequest "https://github.com/jrydel/tx/releases/latest/download/tx-cli-x86_64-pc-windows-msvc.exe" -OutFile $exe -UseBasicParsing
 
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
