@@ -295,9 +295,13 @@ async fn run(cli: Cli) -> Result<i32> {
     Ok(0)
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
-    match run(Cli::parse()).await {
+fn main() -> ExitCode {
+    #[cfg(target_os = "linux")]
+    paths::restore_session_env();
+    let result = tokio::runtime::Runtime::new()
+        .map_err(anyhow::Error::from)
+        .and_then(|rt| rt.block_on(run(Cli::parse())));
+    match result {
         Ok(code) => ExitCode::from(code.clamp(0, 255) as u8),
         Err(e) => {
             eprintln!("tx: {e:#}");

@@ -14,8 +14,8 @@ const PART_CHARS: usize = 60_000;
 
 const INSTRUCTIONS: &str = "tx watches YouTube channels on this computer. To screen new uploads: get_profile, \
 check_new_videos, then for each video get_transcript and save_analysis (or skip_video), then write_digest. \
-For a channel's latest videos use recent_videos. Show results to the user with show_videos. \
-The screen-videos skill has the full procedure and scoring rubric.";
+For a channel's latest videos use get_profile, then recent_videos. Every analysis is for the profile's owner. \
+Show results to the user with show_videos. The screen-videos skill has the full procedure and scoring rubric.";
 
 /// MCP Apps: hosts that render them (Claude Desktop, claude.ai, the Codex app) show `show_videos`
 /// results as cards from this page; others get markdown.
@@ -50,7 +50,8 @@ fn tools() -> Value {
             "relevance": { "type": "integer", "minimum": 0, "maximum": 5, "description": "0 irrelevant … 5 must-watch, for this user" },
             "verdict": { "type": "string", "description": "One sentence: why, for this user" },
             "tldr": { "type": "string", "description": "2-3 sentences: the core content or claim" },
-            "takeaways": { "type": "array", "items": { "type": "object", "required": ["text"], "properties": { "at": stamp, "text": { "type": "string" } } } },
+            "takeaways": { "type": "array", "description": "3-5 points for this user: what they should know, try or change because of that moment, with the concrete number, tool or technique. Not a retelling of the video; the TL;DR does that.",
+              "items": { "type": "object", "required": ["text"], "properties": { "at": stamp, "text": { "type": "string" } } } },
             "watch": { "type": "object", "required": ["advice", "reason"], "properties": {
                 "advice": { "type": "string", "enum": ["skip", "skim", "watch"] }, "from": stamp, "to": stamp, "reason": { "type": "string" } } } } } },
         { "name": "skip_video", "description": "Give up on a video for now (e.g. no usable transcript). It is retried on later runs, up to 3 attempts.",
@@ -299,6 +300,9 @@ fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
                     v.verdict.as_deref().unwrap_or_default(),
                     p.tldr
                 ));
+                if !p.takeaways.is_empty() {
+                    md.push_str("**For you:**\n");
+                }
                 for t in &p.takeaways {
                     match (&t.at, at_url(&t.at)) {
                         (Some(at), Some(u)) => md.push_str(&format!("- [{at}]({u}) {}\n", t.text)),

@@ -96,3 +96,51 @@ pub fn command(program: &Path) -> tokio::process::Command {
     cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     cmd
 }
+
+/// Agents start MCP servers with a minimal environment. On Linux that drops the desktop session
+/// bus, so yt-dlp can't unlock the browser's cookie key in the keyring (signed-in features like
+/// `import_subscriptions` see a logged-out YouTube) and notifications fail. Restore the session
+/// variables from the systemd user manager.
+///
+/// Sets environment variables, so call it before any other thread starts.
+#[cfg(target_os = "linux")]
+pub fn restore_session_env() {
+    use std::os::unix::fs::MetadataExt;
+    const VARS: [&str; 7] = [
+        "DBUS_SESSION_BUS_ADDRESS",
+        "XDG_RUNTIME_DIR",
+        "XDG_CURRENT_DESKTOP",
+        "XDG_SESSION_DESKTOP",
+        "DESKTOP_SESSION",
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+    ];
+    if env::var_os("DBUS_SESSION_BUS_ADDRESS").is_some() {
+        return;
+    }
+    let runtime = env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            let uid = std::fs::metadata("/proc/self").ok()?.uid();
+            Some(PathBuf::from(format!("/run/user/{uid}")))
+        });
+    let Some(runtime) = runtime.filter(|d| d.is_dir()) else {
+        return;
+    };
+    let Ok(out) = std::process::Command::new("systemctl")
+        .args(["--user", "show-environment"])
+        .env("XDG_RUNTIME_DIR", &runtime)
+        .output()
+    else {
+        return;
+    };
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        if let Some((key, value)) = line.split_once('=')
+            && VARS.contains(&key)
+            && env::var_os(key).is_none()
+        {
+            // SAFETY: called at the start of main, before any other thread exists.
+            unsafe { env::set_var(key, value) };
+        }
+    }
+}
