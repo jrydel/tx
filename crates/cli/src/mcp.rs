@@ -621,6 +621,36 @@ async fn handle(db: &Db, session: &mut Session, msg: &Value) -> Option<Value> {
                 "set_daily_brief" => guide::set_daily_brief(db, args, &session.client).map(text),
                 _ => call(db, name, args).await.map(text),
             };
+            // First use in an app: until setup is done, steer the agent to the setup panel.
+            const SETUP: [&str; 10] = [
+                "status",
+                "onboarding",
+                "set_profile",
+                "get_profile",
+                "watch_channel",
+                "unwatch_channel",
+                "import_subscriptions",
+                "find_podcasts",
+                "list_channels",
+                "set_daily_brief",
+            ];
+            let result = match result {
+                Ok(mut r) if !SETUP.contains(&name) && guide::needs_setup(db).unwrap_or(false) => {
+                    let how = if session.ui {
+                        "show the onboarding panel so they can set it up in a minute"
+                    } else {
+                        "call onboarding and walk them through setup in chat"
+                    };
+                    let note = format!(
+                        "Note: tx isn't set up yet (no profile, or nothing followed). Before going on, {how}; then come back to this."
+                    );
+                    if let Some(c) = r["content"].as_array_mut() {
+                        c.insert(0, json!({ "type": "text", "text": note }));
+                    }
+                    Ok(r)
+                }
+                other => other,
+            };
             Ok(result.unwrap_or_else(|e| {
                 json!({ "content": [{ "type": "text", "text": format!("{e:#}") }], "isError": true })
             }))

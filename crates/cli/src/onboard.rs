@@ -5,6 +5,7 @@
 use crate::agents::{self, Agent, Target};
 use crate::schedule;
 use anyhow::{Context, Result, bail};
+use dialoguer::console::{Style, measure_text_width, style};
 use dialoguer::{Confirm, Input, MultiSelect, Select, theme::ColorfulTheme};
 use std::io::IsTerminal;
 use std::process::{Command, Stdio};
@@ -12,34 +13,141 @@ use tx_core::db::{self, Db};
 use tx_core::{feeds, podcasts};
 
 const BROWSERS: [&str; 5] = ["chrome", "firefox", "safari", "edge", "brave"];
+const STEPS: [&str; 4] = ["Your AI", "About you", "What to follow", "Daily brief"];
+/// Width of one stop on the progress rail: the longest step name plus a gap.
+const STOP: usize = 16;
 
-fn step(n: u8, title: &str) {
-    println!("\n\x1b[1m{n}/4  {title}\x1b[0m");
+/// The same visual language as the brief in the AI apps: green is done, bold is now, dim is later.
+fn theme() -> ColorfulTheme {
+    let s = |t: &str| style(t.to_string()).for_stderr();
+    ColorfulTheme {
+        prompt_prefix: s("›").dim(),
+        success_prefix: s("✓").green(),
+        error_prefix: s("✗").red(),
+        active_item_prefix: s("›").bold(),
+        inactive_item_prefix: s(" "),
+        checked_item_prefix: s("●").green(),
+        unchecked_item_prefix: s("○").dim(),
+        picked_item_prefix: s("›").bold(),
+        unpicked_item_prefix: s(" "),
+        hint_style: Style::new().for_stderr().dim(),
+        values_style: Style::new().for_stderr().green(),
+        active_item_style: Style::new().for_stderr().bold(),
+        ..ColorfulTheme::default()
+    }
+}
+
+/// The setup's progress as a timeline, like a video's in the brief: stops fill in as you go.
+///
+/// ```text
+///  ●━━━━━━━━━━━━━━━◉───────────────○───────────────○
+///  Your AI         About you       What to follow  Daily brief
+/// ```
+fn rail(current: usize) {
+    let mut line = String::from(" ");
+    let mut labels = String::from(" ");
+    for (i, name) in STEPS.iter().enumerate() {
+        let done = i < current;
+        let dot = match i.cmp(&current) {
+            std::cmp::Ordering::Less => style("●").green(),
+            std::cmp::Ordering::Equal => style("◉").bold(),
+            std::cmp::Ordering::Greater => style("○").dim(),
+        };
+        line.push_str(&dot.to_string());
+        if i + 1 < STEPS.len() {
+            let seg = if done {
+                style("━".repeat(STOP - 1)).green()
+            } else {
+                style("─".repeat(STOP - 1)).dim()
+            };
+            line.push_str(&seg.to_string());
+        }
+        let label = format!("{name:<STOP$}");
+        let label = if i == current {
+            style(label).bold()
+        } else {
+            style(label).dim()
+        };
+        labels.push_str(&label.to_string());
+    }
+    println!("\n{line}\n{}\n", labels.trim_end());
+}
+
+/// A rounded box around a few lines, for the welcome and the end.
+fn card(title: &str, lines: &[String]) {
+    let inner = lines
+        .iter()
+        .map(|l| measure_text_width(l))
+        .chain([measure_text_width(title) + 2])
+        .max()
+        .unwrap_or(0);
+    // "╭─ title " then the rule, as wide as the "│ line │" rows below.
+    let rule = "─".repeat(inner - measure_text_width(title) - 1);
+    println!("╭─ {} {rule}╮", style(title).bold());
+    for l in lines {
+        println!("│ {l}{} │", " ".repeat(inner - measure_text_width(l)));
+    }
+    println!("╰{}╯", "─".repeat(inner + 2));
+}
+
+fn note(text: &str) {
+    println!("  {}", style(text).dim());
 }
 
 pub async fn run() -> Result<()> {
     if !std::io::stdin().is_terminal() {
         bail!("tx onboard asks questions, so run it in a terminal");
     }
-    let theme = ColorfulTheme::default();
+    let theme = theme();
     let db: Db = std::sync::Mutex::new(db::connect()?);
-    println!(
-        "Let's set up tx: 4 short steps. Run `tx onboard` again any time to change something."
+    println!();
+    card(
+        "tx",
+        &[
+            "Don't watch the video. Read it, then decide.".into(),
+            style("Four questions, about two minutes. Change anything later with `tx onboard`.")
+                .dim()
+                .to_string(),
+        ],
     );
 
-    connect_apps(&theme)?;
+    rail(0);
+    let apps = connect_apps(&theme)?;
+    rail(1);
     about(&theme, &db)?;
+    rail(2);
     follow(&theme, &db).await?;
-    daily(&theme)?;
+    rail(3);
+    let daily = daily(&theme)?;
+    rail(4);
 
-    let following = db::channels(&db.lock().unwrap())?
-        .iter()
-        .filter(|c| c.enabled)
-        .count();
-    println!(
-        "\n\x1b[1mYou're set.\x1b[0m Following {following}. In your AI app, start a new chat and ask:"
-    );
-    println!("  \"Use tx: show me my brief\"   or paste any video link with \"TL;DR this\".");
+    let (following, profile) = {
+        let conn = db.lock().unwrap();
+        let n = db::channels(&conn)?.iter().filter(|c| c.enabled).count();
+        (n, db::get_settings(&conn)?.profile)
+    };
+    let tick = |t: String| format!("{} {t}", style("✓").green());
+    let mut lines = vec![];
+    if !profile.trim().is_empty() {
+        lines.push(tick("Scored for what you want to learn".into()));
+    }
+    if following > 0 {
+        lines.push(tick(format!("Following {following}")));
+    }
+    if let Some(at) = &daily {
+        lines.push(tick(format!("A brief every day at {at}")));
+    }
+    let app = if apps.is_empty() {
+        "your AI app".to_string()
+    } else {
+        apps.join(" or ")
+    };
+    lines.push(String::new());
+    lines.push(format!(
+        "Quit {app} completely, open it again, start a new chat and type:"
+    ));
+    lines.push(format!("  {}", style("Show me my tx brief").bold()));
+    card("You're set", &lines);
     if following > 0
         && let Ok(agent) = Agent::detect()
         && Confirm::with_theme(&theme)
@@ -55,9 +163,10 @@ pub async fn run() -> Result<()> {
     Ok(())
 }
 
-/// Which AI apps to connect tx to; the ones found on this computer are pre-ticked.
-fn connect_apps(theme: &ColorfulTheme) -> Result<()> {
-    step(1, "Connect your AI");
+/// Which AI apps to connect tx to; the ones found on this computer are pre-ticked. Returns the
+/// names of the apps connected.
+fn connect_apps(theme: &ColorfulTheme) -> Result<Vec<&'static str>> {
+    note("tx works inside your AI app. Tick the ones you use (space), then press enter.");
     let codex = Agent::Codex.find().is_some() || agents::codex_home().is_ok_and(|h| h.exists());
     let claude_code = Agent::Claude.find().is_some();
     let claude_desktop = agents::claude_desktop_config()
@@ -66,38 +175,47 @@ fn connect_apps(theme: &ColorfulTheme) -> Result<()> {
     let apps = [
         (
             Target::Codex,
+            "Codex",
             "Codex (the ChatGPT desktop app or CLI)",
             codex,
         ),
-        (Target::ClaudeCode, "Claude Code", claude_code),
-        (Target::ClaudeDesktop, "Claude Desktop", claude_desktop),
+        (
+            Target::ClaudeCode,
+            "Claude Code",
+            "Claude Code",
+            claude_code,
+        ),
+        (
+            Target::ClaudeDesktop,
+            "Claude Desktop",
+            "Claude Desktop",
+            claude_desktop,
+        ),
     ];
-    if !apps.iter().any(|a| a.2) {
-        println!(
-            "No AI app found. Install Codex (ChatGPT), Claude Code or Claude Desktop, then run `tx onboard` again."
+    if !apps.iter().any(|a| a.3) {
+        note(
+            "No AI app found. Install Codex (ChatGPT), Claude Code or Claude Desktop, then run `tx onboard` again.",
         );
     }
     let picked = MultiSelect::with_theme(theme)
-        .with_prompt("Use tx in (space to tick, enter to confirm)")
-        .items(apps.iter().map(|a| a.1).collect::<Vec<_>>())
-        .defaults(&apps.iter().map(|a| a.2).collect::<Vec<_>>())
+        .with_prompt("Use tx in")
+        .items(apps.iter().map(|a| a.2))
+        .defaults(&apps.iter().map(|a| a.3).collect::<Vec<_>>())
         .interact()?;
+    let mut connected = vec![];
     for i in picked {
-        if let Err(e) = agents::setup(apps[i].0) {
-            println!("  {}: {e:#}", apps[i].1);
+        match agents::setup(apps[i].0) {
+            Ok(()) => connected.push(apps[i].1),
+            Err(e) => println!("  {} {}: {e:#}", style("✗").red(), apps[i].2),
         }
     }
-    Ok(())
+    Ok(connected)
 }
 
 fn about(theme: &ColorfulTheme, db: &Db) -> Result<()> {
-    step(2, "About you");
-    println!(
-        "Every video and episode is scored against this: your role, what you want to learn, what to skip."
-    );
-    println!(
-        "\x1b[2me.g. I'm a backend engineer building LLM features. I want concrete agent and eval techniques\n     and notable model launches; skip hype and drama.\x1b[0m"
-    );
+    note("Who you are and what you want to learn. Every video and episode is scored against this.");
+    note("e.g. I'm a backend engineer building LLM features. I want concrete agent and eval");
+    note("     techniques and notable model launches; skip hype and drama.");
     let conn = db.lock().unwrap();
     let mut settings = db::get_settings(&conn)?;
     let profile: String = Input::with_theme(theme)
@@ -113,7 +231,9 @@ fn about(theme: &ColorfulTheme, db: &Db) -> Result<()> {
 }
 
 async fn follow(theme: &ColorfulTheme, db: &Db) -> Result<()> {
-    step(3, "What to follow");
+    note(
+        "Only what you follow gets screened. Add from as many places as you like, then choose Done.",
+    );
     loop {
         let following = db::channels(&db.lock().unwrap())?
             .iter()
@@ -135,7 +255,7 @@ async fn follow(theme: &ColorfulTheme, db: &Db) -> Result<()> {
         let choice = Select::with_theme(theme)
             .with_prompt("Add")
             .items(choices)
-            .default(0)
+            .default(if following > 0 { 5 } else { 0 })
             .interact()?;
         let result = match choice {
             0 => {
@@ -146,7 +266,7 @@ async fn follow(theme: &ColorfulTheme, db: &Db) -> Result<()> {
                     .interact()?;
                 match feeds::import_subscriptions(db, BROWSERS[b]).await {
                     Ok((found, _)) => {
-                        println!("  Imported {found} subscriptions.");
+                        println!("  {} Imported {found} subscriptions.", style("✓").green());
                         pick(theme, db).await
                     }
                     Err(e) => Err(e),
@@ -171,7 +291,7 @@ async fn follow(theme: &ColorfulTheme, db: &Db) -> Result<()> {
                 };
                 match imported {
                     Ok((found, _)) => {
-                        println!("  Imported {found}.");
+                        println!("  {} Imported {found}.", style("✓").green());
                         pick(theme, db).await
                     }
                     Err(e) => Err(e),
@@ -183,8 +303,8 @@ async fn follow(theme: &ColorfulTheme, db: &Db) -> Result<()> {
                     .interact_text()?;
                 for r in refs.split(',').map(str::trim).filter(|r| !r.is_empty()) {
                     match feeds::add_channel(db, r).await {
-                        Ok(title) => println!("  Following {title}"),
-                        Err(e) => println!("  {r}: {e:#}"),
+                        Ok(title) => println!("  {} Following {title}", style("✓").green()),
+                        Err(e) => println!("  {} {r}: {e:#}", style("✗").red()),
                     }
                 }
                 Ok(())
@@ -194,7 +314,7 @@ async fn follow(theme: &ColorfulTheme, db: &Db) -> Result<()> {
             _ => return Ok(()),
         };
         if let Err(e) = result {
-            println!("  {e:#}");
+            println!("  {} {e:#}", style("✗").red());
         }
     }
 }
@@ -207,7 +327,7 @@ async fn add_podcasts(theme: &ColorfulTheme, db: &Db) -> Result<()> {
     for name in names.split(',').map(str::trim).filter(|n| !n.is_empty()) {
         let found = podcasts::search(name).await?;
         if found.is_empty() {
-            println!("  No podcast found for \"{name}\".");
+            println!("  {} No podcast found for \"{name}\".", style("✗").red());
             continue;
         }
         let labels: Vec<String> = found
@@ -215,9 +335,9 @@ async fn add_podcasts(theme: &ColorfulTheme, db: &Db) -> Result<()> {
             .take(5)
             .map(|s| {
                 format!(
-                    "{} ({})",
+                    "{}  {}",
                     s["title"].as_str().unwrap_or("?"),
-                    s["author"].as_str().unwrap_or("")
+                    style(s["author"].as_str().unwrap_or("")).dim()
                 )
             })
             .chain(["None of these".to_string()])
@@ -229,7 +349,7 @@ async fn add_podcasts(theme: &ColorfulTheme, db: &Db) -> Result<()> {
             .interact()?;
         if let Some(show) = found.get(i).filter(|_| i < labels.len() - 1) {
             let title = podcasts::add(db, show["feed_url"].as_str().unwrap_or_default()).await?;
-            println!("  Following {title}");
+            println!("  {} Following {title}", style("✓").green());
         }
     }
     Ok(())
@@ -255,10 +375,20 @@ async fn pick(theme: &ColorfulTheme, db: &Db) -> Result<()> {
             .default(true)
             .interact()?
     {
-        println!("  Asking {}…", agent.program());
+        note(&format!("Asking {}…", agent.program()));
         match suggest(agent, &profile, &channels) {
-            Ok(p) => picks = p,
-            Err(e) => println!("  Couldn't get suggestions ({e:#}); tick them yourself."),
+            Ok(p) => {
+                println!(
+                    "  {} {} picked {} for you, marked ●. Change anything.",
+                    style("✓").green(),
+                    agent.program(),
+                    p.len()
+                );
+                picks = p;
+            }
+            Err(e) => note(&format!(
+                "Couldn't get suggestions ({e:#}); tick them yourself."
+            )),
         }
     }
     let why = |id: &str| picks.iter().find(|(p, _)| p == id).map(|(_, w)| w.as_str());
@@ -270,8 +400,8 @@ async fn pick(theme: &ColorfulTheme, db: &Db) -> Result<()> {
         .map(|c| {
             let kind = if c.podcast { "podcast" } else { "YouTube" };
             match why(&c.id) {
-                Some(w) => format!("{}  \x1b[2m{kind} · {w}\x1b[0m", c.title),
-                None => format!("{}  \x1b[2m{kind}\x1b[0m", c.title),
+                Some(w) => format!("{}  {}", c.title, style(format!("{kind} · {w}")).dim()),
+                None => format!("{}  {}", c.title, style(kind).dim()),
             }
         })
         .collect();
@@ -279,8 +409,9 @@ async fn pick(theme: &ColorfulTheme, db: &Db) -> Result<()> {
         .iter()
         .map(|c| c.enabled || why(&c.id).is_some())
         .collect();
+    note("Space ticks, ↑↓ scroll, a ticks or clears all, enter saves.");
     let chosen = MultiSelect::with_theme(theme)
-        .with_prompt("Follow (space to tick, enter to confirm)")
+        .with_prompt("Follow")
         .items(&labels)
         .defaults(&defaults)
         .max_length(15)
@@ -298,7 +429,7 @@ async fn pick(theme: &ColorfulTheme, db: &Db) -> Result<()> {
         }
         followed += on as usize;
     }
-    println!("  Following {followed}.");
+    println!("  {} Following {followed}.", style("✓").green());
     Ok(())
 }
 
@@ -365,34 +496,36 @@ fn suggest(agent: Agent, profile: &str, channels: &[db::Channel]) -> Result<Vec<
     Ok(picks)
 }
 
-fn daily(theme: &ColorfulTheme) -> Result<()> {
-    step(4, "Daily brief");
+/// Offer the daily brief; returns the time it runs at, if on.
+fn daily(theme: &ColorfulTheme) -> Result<Option<String>> {
     let Ok(agent) = Agent::detect() else {
-        println!(
-            "The daily brief needs Claude Code or Codex installed; you can still ask for your brief in chat."
+        note(
+            "The daily brief needs Claude Code or Codex installed; you can still ask for your brief in chat.",
         );
-        return Ok(());
+        return Ok(None);
     };
     if schedule::scheduled() {
-        println!("Already on. Change it with `tx schedule --at HH:MM`, or `tx schedule --off`.");
-        return Ok(());
+        note(
+            "Already on. Change it with `tx schedule --at HH:MM`, or turn it off with `tx schedule --off`.",
+        );
+        return Ok(Some("the time you set".into()));
     }
-    println!(
-        "Every morning tx checks what you follow, {} screens what's new, and a notification says what's worth your time.",
+    note(&format!(
+        "Each morning tx checks what you follow, {} screens what's new, and a notification says what's worth your time.",
         agent.program()
-    );
+    ));
+    note("It runs on this computer, even when your AI app is closed.");
     if !Confirm::with_theme(theme)
-        .with_prompt("Turn it on?")
+        .with_prompt("Turn on the daily brief?")
         .default(true)
         .interact()?
     {
-        return Ok(());
+        return Ok(None);
     }
     let at: String = Input::with_theme(theme)
         .with_prompt("At (HH:MM)")
         .default("08:00".into())
         .interact_text()?;
-    let when = schedule::install(agent, schedule::When::parse(Some(&at), None)?)?;
-    println!("  Daily brief on, {when}.");
-    Ok(())
+    schedule::install(agent, schedule::When::parse(Some(&at), None)?)?;
+    Ok(Some(at))
 }

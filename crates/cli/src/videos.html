@@ -107,20 +107,32 @@
 
   /* Setup panel: one step at a time, the steps along the top. */
   .setup { min-height: 0; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 18px 20px 20px; scrollbar-width: thin; }
-  .steps { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
-  .steps button { display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px 4px 5px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--muted); background: var(--sunk); }
-  .steps button span { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; font-size: 11px; background: var(--line); color: var(--fg); }
-  .steps button.done span { background: var(--watch); color: var(--panel); }
-  .steps button[aria-current="step"] { color: var(--fg); box-shadow: inset 0 0 0 1.5px var(--fg); }
+  .setup-head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 16px; flex-wrap: wrap; margin-bottom: 14px; }
+  .setup-head b { font-size: 15px; font-weight: 700; }
+  .setup-head span { font-size: 12.5px; color: var(--faint); }
+  /* Signature: setup progress drawn like a video's timeline in the brief; stops fill in green as you go. */
+  .rail { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 22px; }
+  .stop { position: relative; display: grid; justify-items: start; gap: 7px; padding: 0; font-size: 12.5px; font-weight: 600; color: var(--faint); }
+  .stop::after { content: ""; position: absolute; left: 14px; right: 2px; top: 6px; height: 2px; border-radius: 1px; background: var(--line); }
+  .stop:last-child::after { display: none; }
+  .stop.done::after { background: var(--watch); }
+  .stop i { position: relative; z-index: 1; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); background: var(--panel); }
+  .stop.done i { background: var(--watch); border-color: var(--watch); }
+  .stop[aria-current="step"] { color: var(--fg); }
+  .stop[aria-current="step"] i { border-color: var(--fg); box-shadow: 0 0 0 4px color-mix(in srgb, var(--fg) 14%, transparent); }
+  .stop:hover { color: var(--fg); }
   .setup h2 { margin: 0 0 4px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
   .hint { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; }
   .hint .quiet { padding: 0; text-decoration: underline; text-underline-offset: 3px; }
   textarea, input[type="text"], input[type="time"], select { width: 100%; font: inherit; color: var(--fg); background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
   textarea { min-height: 96px; resize: vertical; line-height: 1.5; }
   textarea:focus, input:focus, select:focus { outline: none; border-color: var(--fg); }
-  .examples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .examples button { font-size: 12.5px; color: var(--muted); padding: 3px 10px; border: 1px dashed var(--line); border-radius: 999px; text-align: left; }
+  .examples { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+  .examples button { display: grid; gap: 3px; align-content: start; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; text-align: left; font-size: 12.5px; line-height: 1.4; color: var(--muted); }
+  .examples button b { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+  .examples button span { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
   .examples button:hover { color: var(--fg); border-color: var(--faint); }
+  @media (max-width: 600px) { .examples { grid-template-columns: 1fr; } }
   .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
   .primary { font-weight: 650; font-size: 13.5px; padding: 7px 16px; border-radius: 8px; background: var(--fg); color: var(--panel); }
   .primary:disabled { opacity: .4; cursor: default; }
@@ -335,9 +347,9 @@
   }
 
   const EXAMPLES = [
-    "I'm a backend engineer building LLM features. I want concrete agent and eval techniques and notable model launches; skip hype and drama.",
-    "Product designer at a startup. I follow AI tools that change how products get built, plus good interface craft. No coding deep dives.",
-    "Founder in fintech. Market moves, regulation and how others ship AI products; skip tutorials.",
+    ["Engineer", "I'm a backend engineer building LLM features. I want concrete agent and eval techniques and notable model launches; skip hype and drama."],
+    ["Designer", "Product designer at a startup. I follow AI tools that change how products get built, plus good interface craft. No coding deep dives."],
+    ["Founder", "Founder in fintech. Market moves, regulation and how others ship AI products; skip tutorials."],
   ];
   const BROWSERS = ["Chrome", "Firefox", "Safari", "Edge", "Brave"];
 
@@ -350,13 +362,14 @@
     const panel = el("div", { class: "setup" });
     const show = (s) => {
       step = s;
-      const nav = el("nav", { class: "steps", "aria-label": "Setup steps" }, steps.map(([id, label], i) => {
-        const b = el("button", { type: "button", class: done[id] ? "done" : null, "aria-current": id === step ? "step" : null },
-          el("span", {}, done[id] ? "✓" : String(i + 1)), label);
+      const nav = el("nav", { class: "rail", "aria-label": "Setup steps" }, steps.map(([id, label]) => {
+        const b = el("button", { type: "button", class: `stop${done[id] ? " done" : ""}`, "aria-current": id === step ? "step" : null,
+          title: done[id] ? `${label}: done` : label }, el("i", { "aria-hidden": "true" }), label);
         b.addEventListener("click", () => show(id));
         return b;
       }));
-      panel.replaceChildren(nav, ...({ about, follow, daily, done: finished })[step]().filter(Boolean));
+      const head = el("div", { class: "setup-head" }, el("b", {}, "Set up tx"), el("span", {}, "Two minutes, then your first brief"));
+      panel.replaceChildren(head, nav, ...({ about, follow, daily, done: finished })[step]().filter(Boolean));
     };
 
     function about() {
@@ -368,8 +381,8 @@
         if (!text) return box.focus();
         act([["set_profile", { profile: text }]], `Use tx: save my profile: "${text}". Then continue my onboarding.`);
       });
-      const examples = el("div", { class: "examples" }, EXAMPLES.map((x) => {
-        const b = el("button", { type: "button", title: "Use this as a starting point" }, x.length > 70 ? `${x.slice(0, 68)}…` : x);
+      const examples = el("div", { class: "examples" }, EXAMPLES.map(([role, x]) => {
+        const b = el("button", { type: "button", title: "Start from this, then make it yours" }, el("b", {}, role), el("span", {}, x));
         b.addEventListener("click", () => { box.value = x; box.focus(); });
         return b;
       }));
@@ -430,15 +443,20 @@
 
     function daily() {
       const time = el("input", { type: "time", value: "08:00", "aria-label": "Time", style: "width:auto" });
+      const when = el("p", { class: "hint", style: "margin:12px 0 0" });
+      const n = following ? followed() : "what you follow";
+      const say = () => { when.textContent = `Tomorrow at ${time.value || "08:00"}, tx checks ${n}, your AI screens what's new, and a notification tells you what's worth your time.`; };
+      time.addEventListener("input", say);
+      say();
       const on = el("button", { type: "button", class: "primary" }, "Turn on daily brief");
       on.disabled = !data.can_schedule;
       on.addEventListener("click", () => act([["set_daily_brief", { at: time.value || "08:00" }]], `Use tx: turn on my daily brief at ${time.value || "08:00"}. Then continue my onboarding.`));
       const skip = el("button", { type: "button", class: "quiet" }, "Not now");
       skip.addEventListener("click", () => show("done"));
       return [el("h2", {}, data.daily_brief ? "Your daily brief is on" : "Get a brief every morning?"),
-        el("p", { class: "hint" }, "At this time tx checks what you follow, your AI screens what's new, and a notification says what's worth your time. It runs on this computer, even when this app is closed."),
+        el("p", { class: "hint" }, "It runs on this computer, even when this app is closed."),
         !data.can_schedule && el("p", { class: "hint" }, "This needs Claude Code or Codex installed. You can still ask for your brief here any time."),
-        el("div", { class: "actions" }, time, on, skip)];
+        el("div", { class: "actions" }, time, on, skip), !data.daily_brief && when];
     }
 
     /** "2 channels", "1 show", or "3 channels and 1 show". */

@@ -8,6 +8,13 @@ use serde_json::{Value, json};
 use tx_core::db::{self, Db};
 use tx_core::report;
 
+/// Setup isn't done until tx knows what the user wants to learn and follows something.
+pub fn needs_setup(db: &Db) -> Result<bool> {
+    let conn = db.lock().unwrap();
+    Ok(db::get_settings(&conn)?.profile.trim().is_empty()
+        || !db::channels(&conn)?.iter().any(|c| c.enabled))
+}
+
 /// Where the user stands, and the single next step for the agent to guide them to.
 pub fn status(db: &Db) -> Result<Value> {
     let conn = db.lock().unwrap();

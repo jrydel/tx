@@ -246,9 +246,17 @@ async fn run(cli: Cli) -> Result<i32> {
         }
         None => {}
     }
-    let url = cli
-        .url
-        .context("pass a video URL, or run `tx onboard` to set tx up (see tx --help)")?;
+    let Some(url) = cli.url else {
+        // First use: a bare `tx` walks through setup until it's done.
+        use std::io::IsTerminal;
+        let db: db::Db = std::sync::Mutex::new(db::connect()?);
+        if std::io::stdin().is_terminal() && guide::needs_setup(&db)? {
+            drop(db);
+            onboard::run().await?;
+            return Ok(0);
+        }
+        anyhow::bail!("pass a video URL, or run `tx onboard` to change your setup (see tx --help)");
+    };
     let progress: ytdlp::Progress = Box::new(|m| eprintln!("tx: {m}"));
     let (t, cache_path) = ytdlp::load(
         &url,
