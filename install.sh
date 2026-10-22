@@ -27,6 +27,6 @@ cat <<EOF
 
 Next, connect tx to your AI (run the one you use, then restart that app):
   tx setup codex            # Codex: ChatGPT desktop app or CLI
-  tx setup claude           # Claude Code
+  tx setup claude-code      # Claude Code
   tx setup claude-desktop   # Claude Desktop
 EOF

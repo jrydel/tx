@@ -108,7 +108,7 @@ fn claude_desktop_config() -> Option<PathBuf> {
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum Target {
     /// Claude Code (CLI and IDE extensions)
-    Claude,
+    ClaudeCode,
     /// Codex (desktop app, CLI and IDE extensions)
     Codex,
     /// Claude Desktop app
@@ -132,14 +132,14 @@ fn install_skill(agent_home: &str) -> Result<PathBuf> {
 pub fn setup(target: Target) -> Result<()> {
     let tx = exe()?.display().to_string();
     match target {
-        Target::Claude | Target::Codex => {
-            let name = if matches!(target, Target::Claude) {
+        Target::ClaudeCode | Target::Codex => {
+            let name = if matches!(target, Target::ClaudeCode) {
                 "claude"
             } else {
                 "codex"
             };
             let program = paths::which(name).with_context(|| format!("{name} is not installed"))?;
-            let scope: &[&str] = if matches!(target, Target::Claude) {
+            let scope: &[&str] = if matches!(target, Target::ClaudeCode) {
                 &["--scope", "user"]
             } else {
                 &[]
@@ -160,7 +160,7 @@ pub fn setup(target: Target) -> Result<()> {
             if !ok {
                 bail!("{name} mcp add failed");
             }
-            let skill = install_skill(if matches!(target, Target::Claude) {
+            let skill = install_skill(if matches!(target, Target::ClaudeCode) {
                 ".claude"
             } else {
                 ".codex"

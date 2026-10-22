@@ -35,7 +35,7 @@ Run the line for the AI you use:
 | You use | Run |
 |---|---|
 | Codex (ChatGPT app or CLI) | `tx setup codex` |
-| Claude Code | `tx setup claude` |
+| Claude Code | `tx setup claude-code` |
 | Claude Desktop | `tx setup claude-desktop` |
 
 Then restart that app if it's open. This adds tx's tools and the **screen-videos** skill.
