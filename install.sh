@@ -31,9 +31,12 @@ mv "$dir/tx.tmp" "$dir/tx"
 # Downloads via curl carry no quarantine flag on macOS, so Gatekeeper doesn't block the binary.
 echo "Installed $("$dir/tx" --version) to $dir/tx"
 
+# How to run tx in this terminal: by name if it's already on PATH, else by full path.
+tx="tx"
 case ":$PATH:" in
   *":$dir:"*) ;;
   *)
+    tx="$dir/tx"
     case "${SHELL:-}" in
       */zsh) rc="$HOME/.zshrc" ;;
       */bash) rc="$HOME/.bashrc" ;;
@@ -54,7 +57,7 @@ esac
 cat <<EOF
 
 Next, connect tx to your AI (run the one you use, then restart that app):
-  tx setup codex            # Codex: ChatGPT desktop app or CLI
-  tx setup claude-code      # Claude Code
-  tx setup claude-desktop   # Claude Desktop
+  $tx setup codex            # Codex: ChatGPT desktop app or CLI
+  $tx setup claude-code      # Claude Code
+  $tx setup claude-desktop   # Claude Desktop
 EOF
