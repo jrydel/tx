@@ -291,7 +291,7 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
 /// the same content as markdown for the rest.
 fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
     let conn = db.lock().unwrap();
-    let worth_from = db::get_settings(&conn)?.notify_min;
+    let settings = db::get_settings(&conn)?;
     let mut videos: Vec<db::Video> = match args["video_ids"].as_array() {
         Some(ids) if !ids.is_empty() => ids
             .iter()
@@ -403,7 +403,7 @@ fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
     };
     Ok(json!({
         "content": [{ "type": "text", "text": text }],
-        "structuredContent": { "videos": cards, "worth_from": worth_from },
+        "structuredContent": { "videos": cards, "profile": settings.profile },
     }))
 }
 

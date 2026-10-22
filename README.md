@@ -134,12 +134,12 @@ Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/s
 | `save_analysis` / `skip_video` | store the agent's score, verdict, TL;DR, takeaways and watch advice |
 | `recent_videos` | a channel's latest uploads, including ones from before you watched it |
 | `feed` | recently analyzed videos |
-| `show_videos` | video cards: thumbnail, score, TL;DR, takeaways that jump to the moment ([MCP App](https://modelcontextprotocol.io/extensions/apps/overview)); markdown in apps without MCP Apps |
+| `show_videos` | your video brief: videos grouped Watch / Skim / Skip, each with a timeline of where the value is, TL;DR and takeaways that jump to the moment ([MCP App](https://modelcontextprotocol.io/extensions/apps/overview)); markdown in apps without MCP Apps |
 | `write_digest` | markdown digest + notification |
 
 Only uploads published after you start watching a channel are screened automatically, so adding a channel doesn't trigger a backlog.
 
-In apps that support MCP Apps (the Codex app, Claude Desktop, claude.ai), results appear as cards with thumbnails. Click a timestamp to open the video at that moment.
+In apps that support MCP Apps (the Codex app, Claude Desktop, claude.ai), results appear as a brief: a list grouped by Watch, Skim and Skip, with the selected video beside it. Its timeline shades the part worth watching and marks each takeaway; click one to open the video at that moment.
 
 ## Data
 
