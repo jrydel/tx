@@ -60,7 +60,7 @@ fn tools() -> Value {
           "inputSchema": { "type": "object", "properties": { "channel": { "type": "string", "description": "Channel id or part of its name (see list_channels); omit for all channels" }, "limit": { "type": "integer", "default": 10 } } } },
         { "name": "feed", "description": "Videos analyzed recently, best first within the time window.",
           "inputSchema": { "type": "object", "properties": { "min_relevance": { "type": "integer", "default": 0 }, "limit": { "type": "integer", "default": 20 } } } },
-        { "name": "show_videos", "description": "Show videos to the user as cards: thumbnail, score, verdict, TL;DR, timestamped takeaways. Call it whenever you present analyzed videos to the user, with their ids in the order to show; without ids it shows the latest analyzed videos.",
+        { "name": "show_videos", "description": "Show videos to the user as cards: thumbnail, score, verdict, TL;DR, timestamped takeaways. Call it whenever you present analyzed videos to the user, with their ids (shown Watch first, then Skim, then Skip, best score first); without ids it shows the latest analyzed videos.",
           "inputSchema": { "type": "object", "properties": {
             "video_ids": { "type": "array", "items": { "type": "string" } },
             "min_relevance": { "type": "integer", "default": 0, "description": "Without video_ids: lowest score to include" },
@@ -254,7 +254,7 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
 fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
     let conn = db.lock().unwrap();
     let worth_from = db::get_settings(&conn)?.notify_min;
-    let videos: Vec<db::Video> = match args["video_ids"].as_array() {
+    let mut videos: Vec<db::Video> = match args["video_ids"].as_array() {
         Some(ids) if !ids.is_empty() => ids
             .iter()
             .filter_map(Value::as_str)
@@ -271,6 +271,19 @@ fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
     if videos.is_empty() {
         bail!("none of these videos are in tx");
     }
+    // Watch first, then skim, skip, not analyzed; best score, then newest, first within each.
+    let rank = |v: &db::Video| match v.analysis.as_deref().map(|a| report::parts(a).advice) {
+        _ if v.status != "done" => 3,
+        Some(a) if a == "watch" => 0,
+        Some(a) if a == "skim" => 1,
+        _ => 2,
+    };
+    videos.sort_by_cached_key(|v| {
+        (
+            rank(v),
+            std::cmp::Reverse((v.relevance, v.published.clone())),
+        )
+    });
     let mut cards = Vec::new();
     let mut md = String::new();
     for v in &videos {
@@ -285,7 +298,13 @@ fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
         md.push_str(&format!("### [{title}]({})\n", v.url));
         let mut meta = vec![
             v.channel.clone(),
-            v.published.get(..10).unwrap_or_default().to_string(),
+            chrono::DateTime::parse_from_rfc3339(&v.published)
+                .map(|d| {
+                    d.with_timezone(&chrono::Local)
+                        .format("%Y-%m-%d %H:%M")
+                        .to_string()
+                })
+                .unwrap_or_else(|_| v.published.clone()),
         ];
         meta.extend(length.clone());
         match v.relevance {

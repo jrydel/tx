@@ -43,7 +43,7 @@
   .list { display: grid; gap: 8px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; }
   .card.open { padding: 12px; }
-  .top { display: grid; grid-template-columns: 128px 1fr auto; gap: 12px; align-items: center; }
+  .top { display: grid; grid-template-columns: 176px 1fr auto; gap: 12px; align-items: start; }
   .card.open .top { grid-template-columns: 224px 1fr auto; align-items: start; gap: 14px; }
   .solo .top, .solo.open .top { grid-template-columns: 224px 1fr; }
   .card:not(.solo) .top { cursor: pointer; }
@@ -69,8 +69,16 @@
   h3 { margin: 0; font-size: 14.5px; line-height: 1.35; font-weight: 650; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; }
   .card.open h3 { font-size: 15.5px; -webkit-line-clamp: 2; }
   .meta { font-size: 12.5px; color: var(--faint); }
-  .verdict { margin: 0; color: var(--muted); font-size: 13px; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; }
-  .card.open .verdict { margin-top: 2px; font-size: 14px; -webkit-line-clamp: unset; }
+  .verdict { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+  .card:not(.open) .verdict { display: none; }
+  /* Collapsed preview: what the video says and the one thing it means for you. Open cards show both in full. */
+  .preview { display: grid; gap: 3px; margin-top: 2px; font-size: 13px; }
+  .card.open .preview { display: none; }
+  .summary, .key { margin: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; }
+  .summary { color: var(--muted); -webkit-line-clamp: 2; }
+  .key { -webkit-line-clamp: 2; }
+  .key b { margin-right: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+  .key .t { margin-right: 6px; }
   .toggle { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; color: var(--faint); }
   .toggle:hover { background: var(--chip); color: var(--fg); }
   .toggle svg { width: 16px; height: 16px; transition: transform .15s; }
@@ -89,7 +97,7 @@
   a.t:hover { background: var(--line); }
   .pending { color: var(--faint); font-style: italic; }
   @media (max-width: 560px) {
-    .top, .card.open .top { grid-template-columns: 96px 1fr auto; align-items: center; }
+    .top, .card.open .top { grid-template-columns: 112px 1fr auto; }
     .solo .top, .solo.open .top { grid-template-columns: 1fr; }
   }
 </style>
@@ -116,6 +124,8 @@
   function applyContext(ctx) {
     if (!ctx) return;
     if (ctx.theme) document.documentElement.style.colorScheme = ctx.theme;
+    if (ctx.locale) locale = ctx.locale;
+    if (ctx.timeZone) timeZone = ctx.timeZone;
     const vars = ctx.styles && ctx.styles.variables;
     if (vars) for (const [k, v] of Object.entries(vars)) if (v) document.documentElement.style.setProperty(k, v);
     const fonts = ctx.styles && ctx.styles.css && ctx.styles.css.fonts;
@@ -132,13 +142,26 @@
     return e;
   }
 
-  function ago(iso) {
-    const d = new Date(iso);
-    if (isNaN(d)) return "";
+  let locale, timeZone;
+
+  function ago(d) {
     const s = (Date.now() - d) / 1000;
     const units = [[31536000, "year"], [2592000, "month"], [604800, "week"], [86400, "day"], [3600, "hour"], [60, "minute"]];
     for (const [n, u] of units) if (s >= n) { const k = Math.floor(s / n); return `${k} ${u}${k > 1 ? "s" : ""} ago`; }
     return "just now";
+  }
+
+  /** "22 Oct 2026, 14:05 · 2 hours ago", in the user's locale and time zone. */
+  function released(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return "";
+    let exact;
+    try {
+      exact = d.toLocaleString(locale, { dateStyle: "medium", timeStyle: "short", timeZone });
+    } catch {
+      exact = d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    }
+    return `${exact} · ${ago(d)}`;
   }
 
   const PLAY = '<svg viewBox="0 0 68 48"><path d="M66.5 7.7a8.5 8.5 0 0 0-6-6C55.3.3 34 .3 34 .3s-21.3 0-26.5 1.4a8.5 8.5 0 0 0-6 6C.1 12.9.1 24 .1 24s0 11.1 1.4 16.3a8.5 8.5 0 0 0 6 6C12.7 47.7 34 47.7 34 47.7s21.3 0 26.5-1.4a8.5 8.5 0 0 0 6-6C67.9 35.1 67.9 24 67.9 24s0-11.1-1.4-16.3z" fill="#f00"/><path d="M45 24 27 14v20z" fill="#fff"/></svg>';
@@ -161,11 +184,16 @@
       v.length && el("span", { class: "len" }, v.length), play);
     const score = v.analyzed && el("span", { class: `score ${kind}`, title: `${r} of 5 for you` },
       [1, 2, 3, 4, 5].map((i) => el("i", { class: i <= r ? "on" : null })));
+    const key = v.takeaways && v.takeaways[0];
+    const preview = v.analyzed && (v.tldr || key) && el("div", { class: "preview" },
+      v.tldr && el("p", { class: "summary" }, v.tldr),
+      key && el("p", { class: "key" }, el("b", {}, "For you"), key.at && stamp(key.at, key.url, `Play from ${key.at}`), key.text));
     const info = el("div", { class: "info" },
       el("div", { class: "row" }, el("span", { class: `badge ${kind}` }, LABELS[kind]), score, v.analyzed && el("span", { class: "num" }, `${r}/5`)),
       el("h3", { title: v.title }, v.title),
-      el("div", { class: "meta" }, [v.channel, ago(v.published)].filter(Boolean).join(" · ")),
-      v.analyzed ? v.verdict && el("p", { class: "verdict" }, v.verdict) : el("p", { class: "pending" }, "Ask your agent to analyze this one."));
+      el("div", { class: "meta", title: v.published }, [v.channel, released(v.published)].filter(Boolean).join(" · ")),
+      v.analyzed ? v.verdict && el("p", { class: "verdict" }, v.verdict) : el("p", { class: "pending" }, "Ask your agent to analyze this one."),
+      preview);
     const toggle = !solo && el("button", { type: "button", class: "toggle", "aria-controls": bodyId, "aria-label": `Details: ${v.title}` });
     if (toggle) toggle.innerHTML = CHEVRON;
     const top = el("div", { class: "top" }, thumb, info, toggle);
