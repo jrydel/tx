@@ -18,6 +18,14 @@ tx (MCP server `tx`) fetches YouTube data on this computer; you do the analysis.
      - `tldr`: 2-3 sentences with the core content or claim.
      - `takeaways`: 3-7 concrete, specific points this person should know or act on, each with `at`, the `mm:ss` of the transcript paragraph where it is said. For an irrelevant video give only the 1-2 most generally useful points.
      - `watch`: `advice` is `skip`, `skim` (with `from`/`to` timestamps of the part worth seeing) or `watch`, plus a one-sentence `reason`.
-4. Call `write_digest`. Then reply with a short summary: the videos worth the user's time (score, title, one-line verdict, link), and how many others were analyzed.
+4. Call `write_digest`. If you're talking with the user, call `show_videos` with the ids you analyzed, best first. Then reply in at most two sentences: which video to watch first and why, and how many others were analyzed. Don't repeat what the cards show.
 
-Rules: use only the transcript, never guess content. Take timestamps from the transcript's `[mm:ss]` paragraph markers. Write in the language the profile is written in. Be specific: numbers, names, and concrete techniques beat general statements.
+## A channel's latest videos, or one video
+
+When the user asks for a TL;DR of specific or recent videos ("the latest Fireship videos"):
+
+1. Find them with `recent_videos` (pass part of the channel name). For a channel tx doesn't know, `watch_channel` it first. A video URL from a channel tx doesn't know can't be stored: use `get_transcript` with the URL and write the TL;DR, takeaways (with timestamps) and watch advice in your reply.
+2. Videos already analyzed (status `done`) need no new analysis. For each other one, `get_transcript` and `save_analysis` exactly as in step 3 above, so it's stored and never redone.
+3. Call `show_videos` with their ids in the order the user asked for, then reply in at most two sentences.
+
+Rules: use only the transcript, never guess content. Take timestamps from the transcript's `[mm:ss]` paragraph markers. Write in the language the profile is written in. Be specific: numbers, names, and concrete techniques beat general statements. Whenever you present analyzed videos, use `show_videos` rather than writing them out yourself.

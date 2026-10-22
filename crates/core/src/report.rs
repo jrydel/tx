@@ -4,7 +4,7 @@ use crate::captions::fmt_time;
 use crate::db::{self, Video};
 use anyhow::{Result, bail};
 use rusqlite::Connection;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
@@ -91,6 +91,66 @@ pub fn section<'a>(analysis: &'a str, heading: &str) -> &'a str {
     let rest = analysis.get(offset.min(analysis.len())..).unwrap_or("");
     let end = rest.find("\n#").map(|i| i + 1).unwrap_or(rest.len());
     rest[..end].trim()
+}
+
+/// Seconds from "mm:ss", "h:mm:ss" or "[mm:ss]".
+pub fn seconds(t: &str) -> Option<u64> {
+    let t = stamp(t)?;
+    t.trim_matches(|c| c == '[' || c == ']')
+        .split(':')
+        .try_fold(0u64, |acc, p| Some(acc * 60 + p.parse::<u64>().ok()?))
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct Point {
+    pub text: String,
+    /// "mm:ss" where it's said.
+    pub at: Option<String>,
+}
+
+/// An analysis written by `compose`, split back into its parts for display.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct Parts {
+    pub tldr: String,
+    pub takeaways: Vec<Point>,
+    /// skip | skim | watch
+    pub advice: String,
+    /// "mm:ss" where the part worth skimming starts.
+    pub skim_from: Option<String>,
+    pub skim_to: Option<String>,
+    pub reason: String,
+}
+
+pub fn parts(analysis: &str) -> Parts {
+    let takeaways = section(analysis, "Takeaways for you")
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("- "))
+        .map(|l| match l.rsplit_once(" [") {
+            Some((text, s)) if s.ends_with(']') && stamp(s).is_some() => Point {
+                text: text.trim().to_string(),
+                at: Some(s.trim_end_matches(']').to_string()),
+            },
+            _ => Point {
+                text: l.trim().to_string(),
+                at: None,
+            },
+        })
+        .collect();
+    let watch = section(analysis, "Worth watching?");
+    let (label, reason) = watch.split_once(" — ").unwrap_or((watch, ""));
+    let advice = label.split_whitespace().next().unwrap_or("").to_lowercase();
+    let mut range = label
+        .split(['[', ']'])
+        .filter(|s| stamp(s).is_some())
+        .map(str::to_string);
+    Parts {
+        tldr: section(analysis, "TL;DR").to_string(),
+        takeaways,
+        skim_from: range.next(),
+        skim_to: range.next(),
+        advice,
+        reason: reason.trim().to_string(),
+    }
 }
 
 pub fn digest_dir(conn: &Connection) -> Result<PathBuf> {
@@ -236,6 +296,43 @@ mod tests {
             section(&md, "Worth watching?"),
             "skim [22:03]–[33:19] — the audits"
         );
+    }
+
+    #[test]
+    fn parts_round_trip_what_compose_wrote() {
+        let p = parts(&compose(&analysis("skim")).unwrap());
+        assert_eq!(p.tldr, "He tests models.");
+        assert_eq!(
+            p.takeaways,
+            vec![
+                Point {
+                    text: "Check real token cost".into(),
+                    at: Some("04:25".into())
+                },
+                Point {
+                    text: "Late point".into(),
+                    at: Some("1:02:03".into())
+                },
+                Point {
+                    text: "No time".into(),
+                    at: None
+                },
+            ]
+        );
+        assert_eq!(
+            (
+                p.advice.as_str(),
+                p.skim_from.as_deref(),
+                p.skim_to.as_deref(),
+                p.reason.as_str()
+            ),
+            ("skim", Some("22:03"), Some("33:19"), "the audits")
+        );
+        let w = parts(&compose(&analysis("watch")).unwrap());
+        assert_eq!((w.advice.as_str(), w.skim_from), ("watch", None));
+        assert_eq!(seconds("1:02:03"), Some(3723));
+        assert_eq!(seconds("[04:25]"), Some(265));
+        assert_eq!(seconds("soon"), None);
     }
 
     #[test]

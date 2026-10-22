@@ -50,7 +50,9 @@ Then, whenever you like:
 
 > Use tx to check my channels for new videos and analyze them for me.
 
-Only videos uploaded after you start watching a channel are analyzed, so nothing happens until a channel posts something new. To try it right away: "Use tx to analyze https://youtu.be/VIDEO_ID for me."
+Only videos uploaded after you start watching a channel are analyzed automatically, so nothing happens until a channel posts something new. To try it right away:
+
+> Use tx: TL;DR of the latest 3 Fireship videos.
 
 ### 4. Optional: every morning, automatically
 
@@ -124,10 +126,14 @@ Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/s
 | `check_new_videos` | poll watched channels (RSS); list uploads waiting for analysis |
 | `get_transcript` | timestamped transcript of a tx video or any URL, in parts for long videos |
 | `save_analysis` / `skip_video` | store the agent's score, verdict, TL;DR, takeaways and watch advice |
+| `recent_videos` | a channel's latest uploads, including ones from before you watched it |
 | `feed` | recently analyzed videos |
+| `show_videos` | video cards: thumbnail, score, TL;DR, takeaways that jump to the moment ([MCP App](https://modelcontextprotocol.io/extensions/apps/overview)); markdown in apps without MCP Apps |
 | `write_digest` | markdown digest + notification |
 
 Only uploads published after you start watching a channel are screened automatically, so adding a channel doesn't trigger a backlog.
+
+In apps that support MCP Apps (the Codex app, Claude Desktop, claude.ai), results appear as cards with thumbnails. Click a timestamp to open the video at that moment.
 
 ## Data
 

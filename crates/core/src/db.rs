@@ -265,6 +265,20 @@ pub fn pending(conn: &Connection) -> Result<Vec<Video>> {
     Ok(rows)
 }
 
+/// Latest uploads tx knows, any status, newest first; `channel` matches a channel id or part of
+/// its name.
+pub fn recent(conn: &Connection, channel: Option<&str>, limit: i64) -> Result<Vec<Video>> {
+    let sql = format!(
+        "SELECT {VIDEO_COLS} FROM videos v JOIN channels c ON c.id = v.channel_id \
+         WHERE ?1 IS NULL OR c.id = ?1 OR c.title LIKE '%' || ?1 || '%' ORDER BY v.published DESC LIMIT ?2"
+    );
+    let rows = conn
+        .prepare(&sql)?
+        .query_map(params![channel, limit], video_row)?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
 pub fn channels(conn: &Connection) -> Result<Vec<Channel>> {
     let rows = conn
         .prepare(

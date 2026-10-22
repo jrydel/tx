@@ -14,11 +14,18 @@ const PART_CHARS: usize = 60_000;
 
 const INSTRUCTIONS: &str = "tx watches YouTube channels on this computer. To screen new uploads: get_profile, \
 check_new_videos, then for each video get_transcript and save_analysis (or skip_video), then write_digest. \
+For a channel's latest videos use recent_videos. Show results to the user with show_videos. \
 The screen-videos skill has the full procedure and scoring rubric.";
 
+/// MCP Apps: hosts that render them (Claude Desktop, claude.ai, the Codex app) show `show_videos`
+/// results as cards from this page; others get markdown.
+const UI_EXTENSION: &str = "io.modelcontextprotocol/ui";
+const CARDS_URI: &str = "ui://tx/videos.html";
+const CARDS_MIME: &str = "text/html;profile=mcp-app";
+const CARDS_HTML: &str = include_str!("videos.html");
+
 fn tools() -> Value {
-    let video_id =
-        json!({ "type": "string", "description": "Video id from check_new_videos or feed" });
+    let video_id = json!({ "type": "string", "description": "Video id from check_new_videos, recent_videos or feed" });
     let stamp = json!({ "type": "string", "description": "Timestamp mm:ss or h:mm:ss from the transcript" });
     json!([
         { "name": "get_profile", "description": "Who the user is and what they want to learn, plus the score that counts as worth their time.",
@@ -37,7 +44,7 @@ fn tools() -> Value {
           "inputSchema": { "type": "object", "properties": {} } },
         { "name": "get_transcript", "description": "Timestamped transcript ([mm:ss] paragraphs) of a tx video id or any video URL (YouTube, X, Vimeo…). Long ones come in parts.",
           "inputSchema": { "type": "object", "properties": { "video": { "type": "string", "description": "Video id or URL" }, "part": { "type": "integer", "minimum": 1, "default": 1 } }, "required": ["video"] } },
-        { "name": "save_analysis", "description": "Store your analysis of a video for the user.",
+        { "name": "save_analysis", "description": "Store your analysis of a video in tx (any video from check_new_videos, recent_videos or feed), so it shows in feed, show_videos and the digest and is never redone.",
           "inputSchema": { "type": "object", "required": ["video_id", "relevance", "verdict", "tldr", "takeaways", "watch"], "properties": {
             "video_id": video_id,
             "relevance": { "type": "integer", "minimum": 0, "maximum": 5, "description": "0 irrelevant … 5 must-watch, for this user" },
@@ -48,8 +55,16 @@ fn tools() -> Value {
                 "advice": { "type": "string", "enum": ["skip", "skim", "watch"] }, "from": stamp, "to": stamp, "reason": { "type": "string" } } } } } },
         { "name": "skip_video", "description": "Give up on a video for now (e.g. no usable transcript). It is retried on later runs, up to 3 attempts.",
           "inputSchema": { "type": "object", "properties": { "video_id": video_id, "reason": { "type": "string" } }, "required": ["video_id", "reason"] } },
+        { "name": "recent_videos", "description": "Latest uploads of channels tx knows, newest first, including ones published before watching started and whether each is analyzed. Use it for \"the latest videos from X\"; analyze any of them with get_transcript and save_analysis.",
+          "inputSchema": { "type": "object", "properties": { "channel": { "type": "string", "description": "Channel id or part of its name (see list_channels); omit for all channels" }, "limit": { "type": "integer", "default": 10 } } } },
         { "name": "feed", "description": "Videos analyzed recently, best first within the time window.",
           "inputSchema": { "type": "object", "properties": { "min_relevance": { "type": "integer", "default": 0 }, "limit": { "type": "integer", "default": 20 } } } },
+        { "name": "show_videos", "description": "Show videos to the user as cards: thumbnail, score, verdict, TL;DR, timestamped takeaways. Call it whenever you present analyzed videos to the user, with their ids in the order to show; without ids it shows the latest analyzed videos.",
+          "inputSchema": { "type": "object", "properties": {
+            "video_ids": { "type": "array", "items": { "type": "string" } },
+            "min_relevance": { "type": "integer", "default": 0, "description": "Without video_ids: lowest score to include" },
+            "limit": { "type": "integer", "default": 10, "description": "Without video_ids: how many" } } },
+          "_meta": { "ui": { "resourceUri": CARDS_URI } } },
         { "name": "write_digest", "description": "Write a markdown digest of everything analyzed since the last digest, and notify the user if something is worth their time.",
           "inputSchema": { "type": "object", "properties": {} } }
     ])
@@ -203,6 +218,24 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
                 .collect();
             serde_json::to_string_pretty(&list)?
         }
+        "recent_videos" => {
+            if let Err(e) = feeds::poll(db).await {
+                eprintln!("tx: checking channels failed, listing known videos: {e:#}");
+            }
+            let channel = args["channel"]
+                .as_str()
+                .map(|s| s.trim().trim_start_matches('@'))
+                .filter(|s| !s.is_empty());
+            let limit = args["limit"].as_i64().unwrap_or(10).clamp(1, 50);
+            let list: Vec<Value> = db::recent(&db.lock().unwrap(), channel, limit)?
+                .iter()
+                .map(video_json)
+                .collect();
+            if list.is_empty() {
+                bail!("no videos for that channel in tx; watch it with watch_channel first");
+            }
+            serde_json::to_string_pretty(&list)?
+        }
         "write_digest" => {
             let d = report::write_digest(&db.lock().unwrap())?;
             crate::notify_digest(&d);
@@ -215,28 +248,144 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
     })
 }
 
-async fn handle(db: &Db, msg: &Value) -> Option<Value> {
+/// `show_videos`: cards (`structuredContent`, rendered by CARDS_HTML) for hosts with MCP Apps, and
+/// the same content as markdown for the rest.
+fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
+    let conn = db.lock().unwrap();
+    let worth_from = db::get_settings(&conn)?.notify_min;
+    let videos: Vec<db::Video> = match args["video_ids"].as_array() {
+        Some(ids) if !ids.is_empty() => ids
+            .iter()
+            .filter_map(Value::as_str)
+            .filter_map(|id| db::video(&conn, id).transpose())
+            .collect::<Result<_>>()?,
+        _ => db::analyzed(
+            &conn,
+            None,
+            args["min_relevance"].as_i64().unwrap_or(0),
+            args["limit"].as_i64().unwrap_or(10).clamp(1, 50),
+        )?,
+    };
+    drop(conn);
+    if videos.is_empty() {
+        bail!("none of these videos are in tx");
+    }
+    let mut cards = Vec::new();
+    let mut md = String::new();
+    for v in &videos {
+        let p = report::parts(v.analysis.as_deref().unwrap_or_default());
+        let at_url = |at: &Option<String>| {
+            at.as_deref()
+                .and_then(report::seconds)
+                .map(|s| format!("{}&t={s}s", v.url))
+        };
+        let length = v.duration.map(captions::fmt_time);
+        let title = v.title.replace(['[', ']'], "");
+        md.push_str(&format!("### [{title}]({})\n", v.url));
+        let mut meta = vec![
+            v.channel.clone(),
+            v.published.get(..10).unwrap_or_default().to_string(),
+        ];
+        meta.extend(length.clone());
+        match v.relevance {
+            Some(r) if v.status == "done" => {
+                md.push_str(&format!(
+                    "**{r}/5 · {}** · {}\n\n",
+                    p.advice,
+                    meta.join(" · ")
+                ));
+                md.push_str(&format!(
+                    "{}\n\n{}\n\n",
+                    v.verdict.as_deref().unwrap_or_default(),
+                    p.tldr
+                ));
+                for t in &p.takeaways {
+                    match (&t.at, at_url(&t.at)) {
+                        (Some(at), Some(u)) => md.push_str(&format!("- [{at}]({u}) {}\n", t.text)),
+                        _ => md.push_str(&format!("- {}\n", t.text)),
+                    }
+                }
+                md.push('\n');
+            }
+            _ => md.push_str(&format!("{} · not analyzed yet\n\n", meta.join(" · "))),
+        }
+        cards.push(json!({
+            "id": v.id, "title": v.title, "channel": v.channel, "url": v.url, "published": v.published,
+            "thumbnail": format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", v.id), "length": length,
+            "analyzed": v.status == "done", "relevance": v.relevance, "verdict": v.verdict, "tldr": p.tldr,
+            "takeaways": p.takeaways.iter().map(|t| json!({ "text": t.text, "at": t.at, "url": at_url(&t.at) })).collect::<Vec<_>>(),
+            "advice": p.advice, "skim_from": p.skim_from, "skim_to": p.skim_to, "skim_url": at_url(&p.skim_from),
+            "reason": p.reason,
+        }));
+    }
+    let text = if ui {
+        let list: Vec<String> = videos
+            .iter()
+            .map(|v| {
+                format!(
+                    "- {} ({}): {}",
+                    v.title,
+                    v.id,
+                    v.relevance
+                        .map_or("not analyzed".into(), |r| format!("{r}/5"))
+                )
+            })
+            .collect();
+        format!(
+            "The user now sees these {} videos as cards with thumbnails, scores, TL;DRs and timestamped takeaways. \
+             Don't repeat them; add at most two sentences (for example, which to watch first).\n\n{}",
+            videos.len(),
+            list.join("\n")
+        )
+    } else {
+        format!("Show the user this markdown as is, then add at most two sentences:\n\n{md}")
+    };
+    Ok(json!({
+        "content": [{ "type": "text", "text": text }],
+        "structuredContent": { "videos": cards, "worth_from": worth_from },
+    }))
+}
+
+async fn handle(db: &Db, ui: &mut bool, msg: &Value) -> Option<Value> {
     let id = msg.get("id")?.clone(); // notifications get no reply
     let method = msg["method"].as_str().unwrap_or_default();
+    let params = &msg["params"];
     let result = match method {
-        "initialize" => Ok(json!({
-            "protocolVersion": msg["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
-            "capabilities": { "tools": {} },
-            "serverInfo": { "name": "tx", "version": env!("CARGO_PKG_VERSION") },
-            "instructions": INSTRUCTIONS,
-        })),
+        "initialize" => {
+            *ui = params["capabilities"]["extensions"]
+                .get(UI_EXTENSION)
+                .is_some();
+            Ok(json!({
+                "protocolVersion": params["protocolVersion"].as_str().unwrap_or("2025-06-18"),
+                "capabilities": { "tools": {}, "resources": {} },
+                "serverInfo": { "name": "tx", "version": env!("CARGO_PKG_VERSION") },
+                "instructions": INSTRUCTIONS,
+            }))
+        }
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools() })),
+        "resources/list" => Ok(json!({ "resources": [
+            { "uri": CARDS_URI, "name": "Video cards", "mimeType": CARDS_MIME }
+        ] })),
+        "resources/read" if params["uri"] == CARDS_URI => Ok(json!({ "contents": [{
+            "uri": CARDS_URI, "mimeType": CARDS_MIME, "text": CARDS_HTML,
+            "_meta": { "ui": { "csp": { "resourceDomains": ["https://i.ytimg.com"] }, "prefersBorder": false } },
+        }] })),
+        "resources/read" => Err(json!({ "code": -32002, "message": "resource not found" })),
         "tools/call" => {
-            let name = msg["params"]["name"].as_str().unwrap_or_default();
+            let name = params["name"].as_str().unwrap_or_default();
             let empty = json!({});
-            let args = msg["params"].get("arguments").unwrap_or(&empty);
-            Ok(match call(db, name, args).await {
-                Ok(text) => json!({ "content": [{ "type": "text", "text": text }] }),
-                Err(e) => {
-                    json!({ "content": [{ "type": "text", "text": format!("{e:#}") }], "isError": true })
-                }
-            })
+            let args = params.get("arguments").unwrap_or(&empty);
+            let result = if name == "show_videos" {
+                show_videos(db, args, *ui)
+            } else {
+                call(db, name, args)
+                    .await
+                    .map(|text| json!({ "content": [{ "type": "text", "text": text }] }))
+            };
+            Ok(result.unwrap_or_else(|e| {
+                json!({ "content": [{ "type": "text", "text": format!("{e:#}") }], "isError": true })
+            }))
         }
         _ => Err(json!({ "code": -32601, "message": format!("method not found: {method}") })),
     };
@@ -248,6 +397,7 @@ async fn handle(db: &Db, msg: &Value) -> Option<Value> {
 
 pub async fn serve() -> Result<()> {
     let db: Db = Mutex::new(db::connect()?);
+    let mut ui = false;
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut out = tokio::io::stdout();
     while let Some(line) = lines.next_line().await? {
@@ -255,7 +405,7 @@ pub async fn serve() -> Result<()> {
             continue;
         }
         let reply = match serde_json::from_str::<Value>(&line) {
-            Ok(msg) => handle(&db, &msg).await,
+            Ok(msg) => handle(&db, &mut ui, &msg).await,
             Err(e) => Some(
                 json!({ "jsonrpc": "2.0", "id": null, "error": { "code": -32700, "message": e.to_string() } }),
             ),

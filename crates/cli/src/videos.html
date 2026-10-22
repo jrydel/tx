@@ -1,0 +1,218 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tx</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --fg: var(--color-text-primary, light-dark(#18181b, #f4f4f5));
+    --muted: var(--color-text-secondary, light-dark(#5b5b66, #a1a1aa));
+    --faint: var(--color-text-tertiary, light-dark(#8a8a94, #71717a));
+    --card: var(--color-background-secondary, light-dark(#f7f7f8, #1f1f23));
+    --chip: var(--color-background-tertiary, light-dark(#ececef, #2c2c32));
+    --line: var(--color-border-secondary, light-dark(#e4e4e7, #303036));
+    --green: light-dark(#15803d, #4ade80);
+    --green-bg: light-dark(#dcfce7, #14532d99);
+    --amber: light-dark(#b45309, #fbbf24);
+    --amber-bg: light-dark(#fef3c7, #78350f99);
+    --gray: light-dark(#6b7280, #9ca3af);
+    --gray-bg: light-dark(#f3f4f6, #37415199);
+    --radius: var(--border-radius-lg, 12px);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; }
+  body {
+    font: 14px/1.5 var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
+    color: var(--fg);
+    padding: 2px;
+  }
+  a { color: inherit; text-decoration: none; cursor: pointer; }
+  .head { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 10px; color: var(--muted); font-size: 13px; }
+  .head b { color: var(--fg); font-weight: 650; letter-spacing: .02em; }
+  .list { display: grid; gap: 10px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; }
+  .top { display: grid; grid-template-columns: 208px 1fr; gap: 14px; }
+  .thumb { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: var(--chip); }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .2s; }
+  .thumb:hover img { transform: scale(1.04); }
+  .thumb .len { position: absolute; right: 6px; bottom: 6px; background: #000c; color: #fff; font-size: 11.5px; font-weight: 600; padding: 1px 5px; border-radius: 4px; font-variant-numeric: tabular-nums; }
+  .thumb .play { position: absolute; inset: 0; display: grid; place-items: center; opacity: 0; transition: opacity .2s; background: #0004; }
+  .thumb:hover .play { opacity: 1; }
+  .play svg { width: 44px; height: 44px; filter: drop-shadow(0 2px 6px #0008); }
+  .info { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .badge { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px; }
+  .watch { color: var(--green); background: var(--green-bg); }
+  .skim { color: var(--amber); background: var(--amber-bg); }
+  .skip, .none { color: var(--gray); background: var(--gray-bg); }
+  /* The kind class (watch/skim/skip) sets the color; the bar segments use it. */
+  .score { display: inline-flex; gap: 3px; align-items: center; padding: 0; background: none !important; }
+  .score i { width: 14px; height: 6px; border-radius: 3px; background: var(--chip); }
+  .score i.on { background: currentColor; }
+  .num { font-size: 12.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+  h3 { margin: 0; font-size: 15.5px; line-height: 1.35; font-weight: 650; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  h3 a:hover { text-decoration: underline; }
+  .meta { font-size: 12.5px; color: var(--faint); }
+  .verdict { margin: 2px 0 0; color: var(--muted); }
+  .tldr { margin: 12px 0 0; }
+  .tldr b { font-size: 11.5px; letter-spacing: .05em; color: var(--faint); margin-right: 6px; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--muted); list-style: none; user-select: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸"; display: inline-block; width: 14px; transition: transform .15s; }
+  details[open] summary::before { transform: rotate(90deg); }
+  ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 5px; }
+  li { display: grid; grid-template-columns: 62px 1fr; gap: 8px; align-items: baseline; }
+  .t { justify-self: start; font: 600 12px/1.6 var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace); padding: 0 6px; border-radius: 5px; background: var(--chip); color: var(--fg); font-variant-numeric: tabular-nums; }
+  a.t:hover { background: var(--line); }
+  .advice { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .advice b { color: var(--fg); }
+  .pending { color: var(--faint); font-style: italic; }
+  @media (max-width: 520px) {
+    .top { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  "use strict";
+  const root = document.getElementById("root");
+  let nextId = 1;
+  const waiting = new Map();
+
+  const send = (msg) => window.parent.postMessage({ jsonrpc: "2.0", ...msg }, "*");
+  const request = (method, params) => new Promise((resolve, reject) => {
+    const id = nextId++;
+    waiting.set(id, { resolve, reject });
+    send({ id, method, params });
+  });
+
+  function openLink(url) {
+    request("ui/open-link", { url }).catch(() => window.open(url, "_blank", "noopener"));
+  }
+
+  function applyContext(ctx) {
+    if (!ctx) return;
+    if (ctx.theme) document.documentElement.style.colorScheme = ctx.theme;
+    const vars = ctx.styles && ctx.styles.variables;
+    if (vars) for (const [k, v] of Object.entries(vars)) if (v) document.documentElement.style.setProperty(k, v);
+    const fonts = ctx.styles && ctx.styles.css && ctx.styles.css.fonts;
+    if (fonts) { const s = document.createElement("style"); s.textContent = fonts; document.head.append(s); }
+  }
+
+  function el(tag, attrs, ...children) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k === "class") e.className = v; else e.setAttribute(k, v);
+    }
+    for (const c of children.flat()) if (c != null && c !== false) e.append(c);
+    return e;
+  }
+
+  function ago(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return "";
+    const s = (Date.now() - d) / 1000;
+    const units = [[31536000, "year"], [2592000, "month"], [604800, "week"], [86400, "day"], [3600, "hour"], [60, "minute"]];
+    for (const [n, u] of units) if (s >= n) { const k = Math.floor(s / n); return `${k} ${u}${k > 1 ? "s" : ""} ago`; }
+    return "just now";
+  }
+
+  const PLAY = '<svg viewBox="0 0 68 48"><path d="M66.5 7.7a8.5 8.5 0 0 0-6-6C55.3.3 34 .3 34 .3s-21.3 0-26.5 1.4a8.5 8.5 0 0 0-6 6C.1 12.9.1 24 .1 24s0 11.1 1.4 16.3a8.5 8.5 0 0 0 6 6C12.7 47.7 34 47.7 34 47.7s21.3 0 26.5-1.4a8.5 8.5 0 0 0 6-6C67.9 35.1 67.9 24 67.9 24s0-11.1-1.4-16.3z" fill="#f00"/><path d="M45 24 27 14v20z" fill="#fff"/></svg>';
+
+  function card(v, worthFrom) {
+    const kind = v.analyzed ? (["watch", "skim", "skip"].includes(v.advice) ? v.advice : "skip") : "none";
+    const label = { watch: "Watch", skim: "Skim", skip: "Skip", none: "Not analyzed" }[kind];
+    const r = v.relevance ?? 0;
+    const play = el("span", { class: "play" });
+    play.innerHTML = PLAY;
+    const thumb = el("a", { class: "thumb", "data-href": v.url, title: "Open on YouTube" },
+      el("img", { src: v.thumbnail, alt: "", loading: "lazy" }),
+      v.length && el("span", { class: "len" }, v.length), play);
+    const score = v.analyzed && el("span", { class: `score ${kind}`, title: `${r} of 5 for you` },
+      [1, 2, 3, 4, 5].map((i) => el("i", { class: i <= r ? "on" : null })));
+    const info = el("div", { class: "info" },
+      el("div", { class: "row" }, el("span", { class: `badge ${kind}` }, label), score, v.analyzed && el("span", { class: "num" }, `${r}/5`)),
+      el("h3", {}, el("a", { "data-href": v.url }, v.title)),
+      el("div", { class: "meta" }, [v.channel, ago(v.published)].filter(Boolean).join(" · ")),
+      v.verdict && v.analyzed && el("p", { class: "verdict" }, v.verdict),
+      !v.analyzed && el("p", { class: "pending" }, "Ask your agent to analyze this one."));
+    const parts = [el("div", { class: "top" }, thumb, info)];
+    if (v.analyzed) {
+      if (v.tldr) parts.push(el("p", { class: "tldr" }, el("b", {}, "TL;DR"), v.tldr));
+      if (v.takeaways && v.takeaways.length) {
+        const d = el("details", { open: r >= worthFrom ? "" : null },
+          el("summary", {}, `${v.takeaways.length} takeaway${v.takeaways.length > 1 ? "s" : ""}`),
+          el("ul", {}, v.takeaways.map((t) => el("li", {},
+            t.at ? el(t.url ? "a" : "span", { class: "t", "data-href": t.url, title: t.url ? `Play from ${t.at}` : null }, t.at) : el("span"),
+            el("span", {}, t.text)))));
+        parts.push(d);
+      }
+      if (v.reason) {
+        const range = kind === "skim" && v.skim_from
+          ? el(v.skim_url ? "a" : "span", { class: "t", "data-href": v.skim_url }, v.skim_to ? `${v.skim_from}–${v.skim_to}` : v.skim_from)
+          : null;
+        parts.push(el("div", { class: "advice" }, el("b", {}, `${label}`), range ? " " : "", range, ` — ${v.reason}`));
+      }
+    }
+    return el("article", { class: "card" }, parts);
+  }
+
+  function render(data) {
+    if (!data || !Array.isArray(data.videos)) return;
+    const worthFrom = data.worth_from ?? 3;
+    const worth = data.videos.filter((v) => v.analyzed && (v.relevance ?? 0) >= worthFrom).length;
+    const n = data.videos.length;
+    root.replaceChildren(
+      el("div", { class: "head" }, el("b", {}, "tx"),
+        `${n} video${n > 1 ? "s" : ""}` + (worth ? ` · ${worth} worth your time` : "")),
+      el("div", { class: "list" }, data.videos.map((v) => card(v, worthFrom))));
+  }
+
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest("[data-href]");
+    if (!a) return;
+    e.preventDefault();
+    openLink(a.getAttribute("data-href"));
+  });
+
+  window.addEventListener("message", (e) => {
+    const m = e.data;
+    if (!m || m.jsonrpc !== "2.0") return;
+    if (m.id != null && !m.method) {
+      const w = waiting.get(m.id);
+      if (w) { waiting.delete(m.id); m.error ? w.reject(m.error) : w.resolve(m.result); }
+      return;
+    }
+    switch (m.method) {
+      case "ui/notifications/tool-result": render(m.params && m.params.structuredContent); break;
+      case "ui/notifications/host-context-changed": applyContext(m.params); break;
+      case "ui/resource-teardown": case "ping": send({ id: m.id, result: {} }); break;
+      default: if (m.id != null) send({ id: m.id, error: { code: -32601, message: "not supported" } });
+    }
+  });
+
+  new ResizeObserver(() => {
+    const r = document.documentElement.getBoundingClientRect();
+    send({ method: "ui/notifications/size-changed", params: { width: Math.ceil(r.width), height: Math.ceil(document.documentElement.scrollHeight) } });
+  }).observe(document.body);
+
+  request("ui/initialize", {
+    appInfo: { name: "tx", version: "1" },
+    appCapabilities: { availableDisplayModes: ["inline"] },
+    protocolVersion: "2026-01-26",
+  }).then((r) => {
+    applyContext(r && r.hostContext);
+    send({ method: "ui/notifications/initialized" });
+  }, () => {});
+
+  // ChatGPT Apps SDK hosts expose the tool result as window.openai.toolOutput.
+  if (window.openai && window.openai.toolOutput) render(window.openai.toolOutput);
+  window.addEventListener("openai:set_globals", () => window.openai && render(window.openai.toolOutput));
+</script>
+</body>
+</html>
