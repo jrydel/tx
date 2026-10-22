@@ -30,7 +30,7 @@ It installs one `tx` binary. On first use it downloads the official [yt-dlp](htt
 |---|---|---|
 | **Claude Code** | `tx setup claude`, or install the plugin: `/plugin marketplace add jrydel/tx` then `/plugin install tx@tx` | "watch @fireship and @t3dotgg in tx", "screen my new videos" |
 | **Claude Desktop** | `tx setup claude-desktop`, then restart Claude | same |
-| **ChatGPT** (via [Codex CLI](https://github.com/openai/codex)) | `tx setup codex` | same, in `codex` |
+| **ChatGPT** (Codex app or [Codex CLI](https://github.com/openai/codex)) | `codex plugin marketplace add jrydel/tx` then `codex plugin add tx@tx` (or `tx setup codex`); restart the Codex app | same, in Codex |
 
 The first time, tell it who you are and what you want to learn ("I'm a backend engineer building LLM features; I want concrete agent and eval techniques; skip hype"). tx stores that profile and scores every video against it.
 

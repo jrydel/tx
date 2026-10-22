@@ -1,0 +1,22 @@
+{
+  "name": "tx",
+  "version": "0.5.1",
+  "description": "Watch YouTube channels and get TL;DRs of new uploads scored against what you want to learn. tx fetches transcripts on your computer; Codex does the analysis.",
+  "author": { "name": "Jiří Rýdel", "url": "https://github.com/jrydel" },
+  "license": "MIT",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "tx: video TL;DRs",
+    "shortDescription": "TL;DRs of new videos from channels you follow",
+    "longDescription": "tx watches the YouTube channels you pick. Codex screens each new upload against a description of what you want to learn: a 0-5 score, TL;DR, takeaways with timestamps, and whether it's worth watching. Needs the tx command installed (see the README).",
+    "developerName": "Jiří Rýdel",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/jrydel/tx",
+    "defaultPrompt": [
+      "Use tx: set my profile to who I am and what I want to learn, then watch @fireship.",
+      "Use tx to check my channels for new videos, analyze them for me and write the digest.",
+      "Use tx to get the transcript of this video and give me a 3-bullet TL;DR: "
+    ]
+  }
+}
