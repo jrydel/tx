@@ -198,6 +198,9 @@ export function startHost() {
       set({ canCallTools: !!caps.serverTools, canMessage: !!caps.message?.text })
       applyContext(r?.hostContext)
       send({ method: "ui/notifications/initialized" })
+      // tx is meant to be read full screen (Codex: in its side panel). Hosts that read the tools' preferred display
+      // mode open it that way already; for the rest, ask once on load. Exit full screen still works.
+      if (state.modes.includes("fullscreen") && state.displayMode !== "fullscreen") void toggleFullscreen()
     },
     () => {}
   )

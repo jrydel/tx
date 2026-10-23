@@ -56,7 +56,7 @@ fn tools() -> Value {
             "suggest": { "type": "array", "description": "Channel or show ids (from list_channels) that fit the profile", "items": { "type": "object", "required": ["id"], "properties": {
                 "id": { "type": "string" }, "why": { "type": "string", "description": "A few words: why it fits" } } } },
             "step": { "type": "string", "enum": ["about", "follow", "daily", "done"], "description": "Open this step instead of the first unfinished one" } } },
-          "_meta": { "ui": { "resourceUri": CARDS_URI } } },
+          "_meta": { "ui": { "resourceUri": CARDS_URI }, "openai/ui": { "preferredModelDisplayMode": "fullscreen" } } },
         { "name": "search_sources", "description": "Search YouTube channels and podcasts by name for the setup panel's autocomplete.",
           "inputSchema": { "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] },
           "_meta": { "ui": { "visibility": ["app"] } } },
@@ -109,7 +109,7 @@ fn tools() -> Value {
             "video_ids": { "type": "array", "items": { "type": "string" }, "description": "Only these videos; omit for the last 7 days' brief" },
             "min_relevance": { "type": "integer", "default": 0, "description": "Without video_ids: lowest score to include" },
             "limit": { "type": "integer", "description": "Without video_ids: how many (default 60 for the week; 10 for the latest analyzed when the week has none)" } } },
-          "_meta": { "ui": { "resourceUri": CARDS_URI } } },
+          "_meta": { "ui": { "resourceUri": CARDS_URI }, "openai/ui": { "preferredModelDisplayMode": "fullscreen" } } },
         { "name": "write_digest", "description": "Write a markdown digest of everything analyzed since the last digest, and notify the user if something is worth their time. When the last 7 days' analyzed videos changed since the last debrief, the reply asks you to write one with save_debrief.",
           "inputSchema": { "type": "object", "properties": {} } },
         { "name": "save_debrief", "description": "Store your debrief across the last 7 days' analyzed videos: what they add up to for this user, what to watch first, and the themes that run through two or more of them, plus a script for a narrated show over the week's best YouTube stretches (an intro, then a narrator line and the stretch to play for each clip, then an outro). Call it when write_digest asks for it. It shows on top of the user's brief; the script plays from its Watch your debrief button.",
