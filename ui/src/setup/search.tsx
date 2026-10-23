@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Command as CommandPrimitive } from "cmdk"
-import { CheckIcon, LinkIcon, SearchIcon } from "lucide-react"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
+import { LinkIcon, SearchIcon } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
 import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command"
 import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
@@ -11,6 +9,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
 import { callTool } from "@/host"
 import type { Channel, SourceResult } from "@/types"
+import { FollowingMark, SourceLine } from "./source-row"
 
 /** A link or an @handle: pass it to tx as typed rather than searching for it. */
 const looksLikeRef = (q: string) => /^(https?:\/\/|www\.|@)/i.test(q) || /^[\w.-]+\.\w{2,}\//.test(q)
@@ -84,9 +83,9 @@ export function SourceSearch({
           key: `local:${c.id}`,
           ref: c.id,
           title: c.title,
-          subtitle: c.watching ? "Following" : "In your list",
+          subtitle: c.subtitle ?? (c.watching ? "Following" : "In your list"),
           kind: c.podcast ? "podcast" : "youtube",
-          image: null,
+          image: c.thumbnail ?? null,
           following: c.watching,
         }))
     : []
@@ -120,27 +119,12 @@ export function SourceSearch({
     const isFollowing = r.following || followed.has(r.key)
     const busy = pending.has(r.key)
     return (
-      <CommandItem key={r.key} value={r.key} onSelect={() => !isFollowing && follow(r.ref, r.title, r.key)} className="gap-2.5 py-1.5">
-        <Avatar className={cn("size-9 rounded-lg after:rounded-lg", r.kind === "youtube" && "rounded-full after:rounded-full")}>
-          {r.image && <AvatarImage src={r.image} alt="" className={r.kind === "youtube" ? "" : "rounded-lg"} />}
-          <AvatarFallback className={r.kind === "youtube" ? "" : "rounded-lg"}>{r.title.trim().charAt(0).toUpperCase()}</AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[13.5px] leading-tight font-semibold">{r.title}</div>
-          <div className="truncate text-xs text-muted-foreground">{r.subtitle}</div>
-        </div>
-        <Badge variant="outline" className="text-faint">
-          {r.kind === "podcast" ? "Podcast" : "YouTube"}
-        </Badge>
+      <CommandItem key={r.key} value={r.key} onSelect={() => !isFollowing && follow(r.ref, r.title, r.key)} className="gap-3 py-2">
+        <SourceLine s={{ title: r.title, kind: r.kind, image: r.image, subtitle: r.subtitle }} />
         {isFollowing ? (
-          <span className="inline-flex w-[72px] items-center justify-end gap-1 text-xs font-semibold text-watch">
-            <CheckIcon className="size-3.5" />
-            Following
-          </span>
+          <FollowingMark />
         ) : (
-          <span className={cn(buttonVariants({ variant: "secondary", size: "xs" }), "w-[72px]")}>
-            {busy ? <Spinner className="size-3" /> : "Follow"}
-          </span>
+          <span className={cn(buttonVariants({ variant: "secondary", size: "xs" }), "w-[84px]")}>{busy ? <Spinner className="size-3" /> : "Follow"}</span>
         )}
       </CommandItem>
     )

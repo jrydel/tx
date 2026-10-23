@@ -1,46 +1,64 @@
-import { useState } from "react"
-import { SparklesIcon, XIcon } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
+import { useState, type ReactNode } from "react"
+import { SparklesIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CardContent, CardFooter } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { callTool } from "@/host"
-import type { Pick } from "@/types"
+import type { Channel, Pick } from "@/types"
 import type { SetupCtx } from "./ctx"
 import { Hint } from "./parts"
 import { SourceSearch } from "./search"
+import { FollowingMark, SourceLine, useChannelDetails } from "./source-row"
 
 const BROWSERS = ["Chrome", "Firefox", "Safari", "Edge", "Brave"]
 
 /**
- * Search is the way in. What's followed shows as chips; subscriptions imported from a browser (and the AI's picks
- * among them) show as a checklist to tick.
+ * Search is the way in. Below it, one list: what you follow, then your imported subscriptions, every row the way search
+ * shows it (avatar, handle, subscribers) with its own Follow. Your AI can pick from the subscriptions; its picks follow
+ * in one go.
  */
 export function FollowStep({ ctx }: { ctx: SetupCtx }) {
   const { data, act } = ctx
-  const watching = data.channels.filter((c) => c.watching)
-  const candidates = data.channels.filter((c) => !c.watching)
   const [showImport, setShowImport] = useState(data.channels.length === 0)
   const [browser, setBrowser] = useState("chrome")
   const [importing, setImporting] = useState(false)
   const [suggesting, setSuggesting] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [filter, setFilter] = useState("")
-  const [overrides, setOverrides] = useState<ReadonlyMap<string, boolean>>(new Map())
-  const [saving, setSaving] = useState(false)
+  const [pending, setPending] = useState<ReadonlySet<string>>(new Set())
+  const asRow = useChannelDetails(data.channels, ctx.canTools)
 
-  const isPicked = (c: { id: string; suggested?: boolean }) => overrides.get(c.id) ?? !!c.suggested
-  const picked = candidates.filter(isPicked)
-  const picks = candidates.filter((c) => c.suggested).length
   const q = filter.trim().toLowerCase()
+  const shown = (c: Channel) => !q || c.title.toLowerCase().includes(q)
+  const watching = data.channels.filter((c) => c.watching)
+  // The AI's picks first, then the rest in the order tx sent them.
+  const candidates = data.channels.filter((c) => !c.watching).sort((a, b) => Number(!!b.suggested) - Number(!!a.suggested))
+  const picks = candidates.filter((c) => c.suggested)
 
-  const follow = (ref: string, name: string) =>
+  /** Runs `calls` for these ids, with their rows showing a spinner meanwhile. */
+  const busy = async (ids: string[], calls: Parameters<typeof act>[0], message: string) => {
+    setPending((p) => new Set([...p, ...ids]))
+    const ok = await act(calls, message, { advance: false })
+    setPending((p) => {
+      const n = new Set(p)
+      for (const id of ids) n.delete(id)
+      return n
+    })
+    return ok
+  }
+
+  const followRef = (ref: string, name: string) =>
     act([["watch_channel", { channels: [ref] }]], `Use tx: follow ${name}. Then continue my onboarding.`, { advance: false })
-
-  const unfollow = (id: string, name: string) =>
-    act([["unwatch_channel", { channel_id: id }]], `Use tx: stop following ${name} (${id}). Then continue my onboarding.`, { advance: false })
+  const follow = (c: Channel) => busy([c.id], [["watch_channel", { channels: [c.id] }]], `Use tx: follow ${c.title}. Then continue my onboarding.`)
+  const unfollow = (c: Channel) =>
+    busy([c.id], [["unwatch_channel", { channel_id: c.id }]], `Use tx: stop following ${c.title} (${c.id}). Then continue my onboarding.`)
+  const followPicks = () =>
+    busy(
+      picks.map((c) => c.id),
+      [["watch_channel", { channels: picks.map((c) => c.id) }]],
+      `Use tx: follow these (ids): ${picks.map((c) => c.id).join(", ")}. Then continue my onboarding.`
+    )
 
   const runImport = async () => {
     setImporting(true)
@@ -53,7 +71,7 @@ export function FollowStep({ ctx }: { ctx: SetupCtx }) {
     setImporting(false)
     if (ok) {
       setShowImport(false)
-      setNote("Imported. Tick what to follow, or let your AI pick.")
+      setNote("Imported. Follow what you like, or let your AI pick.")
     }
   }
 
@@ -69,7 +87,7 @@ export function FollowStep({ ctx }: { ctx: SetupCtx }) {
       const r = await callTool("suggest_channels", {})
       const found = (r.structuredContent as { picks?: Pick[] } | undefined)?.picks ?? []
       await ctx.refresh({ step: "follow", suggest: found }, false)
-      if (!found.length) setNote("Your AI didn't find a clear fit. Tick what you like.")
+      if (!found.length) setNote("Your AI didn't find a clear fit. Follow what you like.")
     } catch (e) {
       await act([], "Use tx: pick which of my imported channels and shows fit my profile, and show onboarding with your picks.")
       setNote(e instanceof Error ? e.message : "Your AI couldn't pick.")
@@ -77,15 +95,8 @@ export function FollowStep({ ctx }: { ctx: SetupCtx }) {
     setSuggesting(false)
   }
 
-  const followTicked = async () => {
-    setSaving(true)
-    const ids = picked.map((c) => c.id)
-    await act([["watch_channel", { channels: ids }]], `Use tx: follow these (ids): ${ids.join(", ")}. Then continue my onboarding.`)
-    setSaving(false)
-  }
-
   const importRow = (
-    <div className="mt-2.5 flex flex-wrap items-center gap-2">
+    <div className="mt-3 flex flex-wrap items-center gap-2">
       <span className="text-[13px] text-muted-foreground">Or import your YouTube subscriptions from</span>
       <select
         aria-label="Browser signed in to YouTube"
@@ -106,28 +117,40 @@ export function FollowStep({ ctx }: { ctx: SetupCtx }) {
     </div>
   )
 
-  const footer = (
-    <CardFooter className="flex-wrap justify-between gap-2.5">
-      <div className="flex flex-wrap items-center gap-2">
-        {!watching.length && <span className="text-[13px] text-faint">Follow at least one to continue.</span>}
-        {data.channels.length > 0 && !showImport && (
-          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setShowImport(true)}>
-            Import subscriptions
-          </Button>
-        )}
-      </div>
-      <div className="ml-auto flex items-center gap-2.5">
-        <Button variant={candidates.length ? "outline" : "default"} disabled={!watching.length} onClick={() => ctx.setStep("daily")}>
-          Continue
-        </Button>
-        {candidates.length > 0 && (
-          <Button onClick={followTicked} disabled={!picked.length || saving}>
-            {saving && <Spinner data-icon="inline-start" />}
-            Follow {picked.length}
-          </Button>
-        )}
-      </div>
-    </CardFooter>
+  const section = (title: string, count: number, tools?: ReactNode) => (
+    <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-b bg-card/95 px-3.5 py-2 backdrop-blur">
+      <span className="text-[11px] font-semibold tracking-[.07em] text-faint uppercase">
+        {title} · {count}
+      </span>
+      {tools}
+    </div>
+  )
+
+  const row = (c: Channel, action: ReactNode) => (
+    <li key={c.id} className="flex items-center gap-3 border-b px-3.5 py-2.5 last:border-b-0 group-data-compact/setup:py-2">
+      <SourceLine s={asRow(c)} pick={c.suggested && !c.watching} />
+      {action}
+    </li>
+  )
+
+  const shownWatching = watching.filter(shown)
+  const shownCandidates = candidates.filter(shown)
+  const hasList = data.channels.length > 0
+
+  const pickTools = suggesting ? (
+    <span className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+      <Spinner /> Your AI is reading your list. About 30 seconds.
+    </span>
+  ) : picks.length ? (
+    <Button size="sm" onClick={followPicks} disabled={picks.some((c) => pending.has(c.id))}>
+      {picks.some((c) => pending.has(c.id)) && <Spinner data-icon="inline-start" />}
+      Follow your AI's {picks.length} {picks.length === 1 ? "pick" : "picks"}
+    </Button>
+  ) : (
+    <Button variant="outline" size="sm" onClick={suggest}>
+      <SparklesIcon data-icon="inline-start" />
+      Let your AI pick
+    </Button>
   )
 
   return (
@@ -135,92 +158,69 @@ export function FollowStep({ ctx }: { ctx: SetupCtx }) {
       <CardContent className="flex min-h-0 flex-1 flex-col *:shrink-0">
         {/* Its command root is h-full; in a card of definite height that would take all of it. */}
         <div>
-          <SourceSearch channels={data.channels} canSearch={ctx.canTools} onFollow={follow} />
+          <SourceSearch channels={data.channels} canSearch={ctx.canTools} onFollow={followRef} />
         </div>
-
-        {watching.length > 0 && (
-          <div className="mt-3 flex items-start gap-2">
-            <span className="shrink-0 pt-[3px] text-[11px] font-semibold tracking-[.07em] whitespace-nowrap text-faint uppercase">Following {watching.length}</span>
-            <ul className="thin m-0 flex max-h-[58px] min-w-0 flex-1 list-none flex-wrap gap-1.5 overflow-y-auto p-0 group-data-compact/setup:max-h-[28px]">
-              {watching.map((c) => (
-                <li key={c.id}>
-                  <Badge variant="secondary" className="h-6 gap-1 pr-0.5 pl-2.5">
-                    <span className="max-w-40 truncate">{c.title}</span>
-                    <button
-                      type="button"
-                      aria-label={`Stop following ${c.title}`}
-                      title={`Stop following ${c.title}`}
-                      onClick={() => unfollow(c.id, c.title)}
-                      className="grid size-4 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-foreground hover:text-card"
-                    >
-                      <XIcon className="size-3" />
-                    </button>
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
         {showImport ? importRow : null}
         {note && <p className="m-0 mt-2.5 text-[13px] text-muted-foreground">{note}</p>}
 
-        {candidates.length > 0 && (
-          <div className="mt-4 flex min-h-[172px] flex-1 shrink-0 basis-0 flex-col group-data-compact/setup:mt-2.5 group-data-compact/setup:min-h-[112px]">
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-              {suggesting ? (
-                <Hint className="m-0 flex items-center gap-2">
-                  <Spinner /> Your AI is reading your list. This takes about 30 seconds.
-                </Hint>
-              ) : picks ? (
-                <Hint className="m-0">Your AI picked {picks} that fit you. Change anything, then follow.</Hint>
-              ) : (
-                <Hint className="m-0">Tick what to follow from your {candidates.length}, or let your AI pick.</Hint>
-              )}
-              <div className="flex items-center gap-2">
-                {!picks && !suggesting && (
-                  <Button variant="outline" size="sm" onClick={suggest}>
-                    <SparklesIcon data-icon="inline-start" />
-                    Let your AI pick
-                  </Button>
-                )}
+        {hasList && (
+          <div className="mt-4 flex min-h-[200px] flex-1 shrink-0 basis-0 flex-col group-data-compact/setup:mt-2.5 group-data-compact/setup:min-h-[112px]">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <Hint className="m-0">{candidates.length ? "Follow from your list, or search for more above." : "What tx analyzes for you."}</Hint>
+              {data.channels.length > 8 && (
                 <Input
                   value={filter}
                   onChange={(e) => setFilter(e.target.value)}
-                  placeholder={`Filter ${candidates.length}`}
+                  placeholder={`Filter ${data.channels.length}`}
                   aria-label="Filter channels and shows"
                   className="h-8 w-44 px-2.5 text-[13px]"
                 />
-              </div>
+              )}
             </div>
-            <div className="thin mt-2.5 min-h-24 flex-1 overflow-y-auto rounded-lg ring-1 ring-foreground/10">
-              {candidates.map((c) => (
-                <label
-                  key={c.id}
-                  hidden={!!q && !c.title.toLowerCase().includes(q)}
-                  className="grid cursor-pointer grid-cols-[18px_1fr_auto] items-start gap-3 border-t px-3.5 py-2.5 first:border-t-0 hover:bg-muted/60 has-data-[state=checked]:bg-muted/40 group-data-compact/setup:py-2"
-                >
-                  <Checkbox
-                    checked={isPicked(c)}
-                    aria-label={c.title}
-                    className="mt-[3px]"
-                    onCheckedChange={(v) => setOverrides((m) => new Map(m).set(c.id, v === true))}
-                  />
-                  <span className="min-w-0">
-                    <span className="block truncate text-[14px] font-medium">
-                      {c.suggested && <span className="mr-1.5 text-[11px] font-bold tracking-[.05em] text-watch uppercase">Pick</span>}
-                      {c.title}
-                    </span>
-                    {c.why && <span className="block text-[12.5px] text-muted-foreground">{c.why}</span>}
-                  </span>
-                  <span className="pt-0.5 text-[11px] font-semibold tracking-[.05em] text-faint uppercase">{c.podcast ? "Podcast" : "YouTube"}</span>
-                </label>
-              ))}
+            <div className="thin min-h-24 flex-1 overflow-y-auto rounded-lg ring-1 ring-foreground/10">
+              {watching.length > 0 && (
+                <>
+                  {section("Following", watching.length)}
+                  <ul className="m-0 list-none p-0">
+                    {shownWatching.map((c) => row(c, <FollowingMark busy={pending.has(c.id)} onStop={() => void unfollow(c)} />))}
+                  </ul>
+                </>
+              )}
+              {candidates.length > 0 && (
+                <>
+                  {section("Your subscriptions", candidates.length, pickTools)}
+                  <ul className="m-0 list-none p-0">
+                    {shownCandidates.map((c) =>
+                      row(
+                        c,
+                        <Button variant="secondary" size="xs" className="w-[84px] shrink-0" disabled={pending.has(c.id)} onClick={() => void follow(c)}>
+                          {pending.has(c.id) ? <Spinner className="size-3" /> : "Follow"}
+                        </Button>
+                      )
+                    )}
+                  </ul>
+                </>
+              )}
+              {q && !shownWatching.length && !shownCandidates.length && (
+                <p className="m-0 px-3.5 py-3 text-[13px] text-muted-foreground">Nothing in your list matches "{filter.trim()}". Search above to find it.</p>
+              )}
             </div>
           </div>
         )}
       </CardContent>
-      {footer}
+      <CardFooter className="flex-wrap justify-between gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          {!watching.length && <span className="text-[13px] text-faint">Follow at least one to continue.</span>}
+          {hasList && !showImport && (
+            <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setShowImport(true)}>
+              Import subscriptions
+            </Button>
+          )}
+        </div>
+        <Button className="ml-auto" disabled={!watching.length} onClick={() => ctx.setStep("daily")}>
+          Continue
+        </Button>
+      </CardFooter>
     </>
   )
 }

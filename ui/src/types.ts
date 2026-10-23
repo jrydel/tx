@@ -77,6 +77,9 @@ export interface Channel {
   watching: boolean
   suggested?: boolean
   why?: string
+  /** Avatar or show art, and "@handle · 4.3M subscribers": null until tx has fetched them (channel_details). */
+  thumbnail?: string | null
+  subtitle?: string | null
 }
 
 export type Step = "about" | "follow" | "daily" | "done"

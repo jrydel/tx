@@ -5,6 +5,7 @@ pub mod agent;
 pub mod captions;
 pub mod db;
 pub mod debrief;
+pub mod details;
 pub mod feeds;
 pub mod paths;
 pub mod podcasts;

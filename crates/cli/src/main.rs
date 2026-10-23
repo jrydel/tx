@@ -1,4 +1,5 @@
 //! `tx`: a video's transcript in your terminal, or ask your agent about it.
+#![recursion_limit = "256"]
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};

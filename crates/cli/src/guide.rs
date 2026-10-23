@@ -6,6 +6,7 @@ use crate::schedule;
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 use tx_core::db::{self, Db};
+use tx_core::details;
 use tx_core::report;
 
 /// Setup isn't done until tx knows what the user wants to learn and follows something.
@@ -136,7 +137,7 @@ pub fn onboarding(db: &Db, args: &Value, ui: bool) -> Result<Value> {
                 .find(|(id, _)| *id == c.id)
                 .map(|(_, why)| *why);
             json!({ "id": c.id, "title": c.title, "podcast": c.podcast, "watching": c.enabled,
-                    "suggested": why.is_some(), "why": why })
+                    "suggested": why.is_some(), "why": why, "thumbnail": c.image, "subtitle": c.subtitle })
         })
         .collect();
     list.sort_by_key(|c| {
@@ -230,6 +231,24 @@ pub fn agent_for(client: &str) -> Option<Agent> {
         .or_else(|| Agent::detect().ok())
 }
 
+/// Most channels the setup panel may ask details for at once.
+const MAX_DETAILS: usize = 30;
+
+/// Avatars and "@handle · 4.3M subscribers" for channels the panel lists (imported ones only
+/// have a title): from the database, else read from YouTube and stored.
+pub async fn channel_details(db: &Db, args: &Value) -> Result<Value> {
+    let ids: Vec<String> = args["ids"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|id| id.as_str().map(String::from))
+        .collect();
+    if ids.len() > MAX_DETAILS {
+        bail!("ask for at most {MAX_DETAILS} channels at a time");
+    }
+    Ok(json!({ "channels": details::lookup(db, &ids).await? }))
+}
+
 /// YouTube channels and podcasts matching what the user types, for the setup panel's search:
 /// what tx already knows first (instant), then YouTube's channel search and Apple's podcasts.
 pub async fn search_sources(db: &Db, query: &str) -> Result<Value> {
@@ -287,23 +306,18 @@ pub async fn search_sources(db: &Db, query: &str) -> Result<Value> {
         if known.iter().any(|k| k == id) {
             continue;
         }
-        let followers = e["channel_follower_count"].as_f64().map(|n| match n {
-            n if n >= 1e6 => format!("{:.1}M subscribers", n / 1e6),
-            n if n >= 1e3 => format!("{:.0}K subscribers", n / 1e3),
-            n => format!("{n:.0} subscribers"),
-        });
+        let followers = e["channel_follower_count"]
+            .as_f64()
+            .map(details::subscribers_label);
         let handle = e["uploader_id"].as_str().filter(|h| h.starts_with('@'));
         // Avatars come as protocol-relative 88 px URLs; ask for a sharper size.
         let thumbnail = e["thumbnails"][0]["url"].as_str().map(|u| {
             format!("https:{}", u.trim_start_matches("https:")).replace("=s88-", "=s176-")
         });
-        let subtitle: Vec<String> = [handle.map(String::from), followers]
-            .into_iter()
-            .flatten()
-            .collect();
+        let subtitle = details::subtitle(handle, followers.as_deref()).unwrap_or_default();
         let title = e["title"].as_str().or(e["channel"].as_str()).unwrap_or(id);
         results.push(
-            json!({ "kind": "youtube", "ref": id, "title": title, "subtitle": subtitle.join(" · "),
+            json!({ "kind": "youtube", "ref": id, "title": title, "subtitle": subtitle,
                              "thumbnail": thumbnail, "watching": watching(id) }),
         );
     }

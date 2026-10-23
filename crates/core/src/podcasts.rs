@@ -20,6 +20,7 @@ const DESCRIPTION_CHARS: usize = 600;
 pub struct Show {
     pub title: String,
     pub image: Option<String>,
+    pub author: Option<String>,
     pub episodes: Vec<Episode>,
 }
 
@@ -193,6 +194,7 @@ pub fn parse_feed(xml: &str) -> Result<Show> {
     Ok(Show {
         title: text(channel, "title", false).context("podcast feed has no title")?,
         image,
+        author: text(channel, "author", true),
         episodes,
     })
 }
@@ -327,12 +329,13 @@ pub fn save_show(
     feed_url: &str,
     title: &str,
     image: Option<&str>,
+    author: Option<&str>,
 ) -> Result<String> {
     let id = channel_id(feed_url);
     db::upsert_channel(conn, &id, title)?;
     conn.execute(
-        "UPDATE channels SET feed_url = ?1, image = COALESCE(?2, image) WHERE id = ?3",
-        params![feed_url.trim(), image, id],
+        "UPDATE channels SET feed_url = ?1, image = COALESCE(?2, image), subtitle = COALESCE(?3, subtitle) WHERE id = ?4",
+        params![feed_url.trim(), image, author, id],
     )?;
     Ok(id)
 }
@@ -351,7 +354,7 @@ pub fn import_opml(db: &Db, path: &std::path::Path) -> Result<(usize, usize)> {
     let conn = db.lock().unwrap();
     let known = db::channels(&conn)?.len();
     for (url, title) in &shows {
-        save_show(&conn, url, title, None)?;
+        save_show(&conn, url, title, None, None)?;
     }
     Ok((shows.len(), db::channels(&conn)?.len() - known))
 }
@@ -363,7 +366,13 @@ pub async fn add(db: &Db, feed_url: &str) -> Result<String> {
         bail!("{feed_url} has no episodes with audio");
     }
     let conn = db.lock().unwrap();
-    let id = save_show(&conn, feed_url, &show.title, show.image.as_deref())?;
+    let id = save_show(
+        &conn,
+        feed_url,
+        &show.title,
+        show.image.as_deref(),
+        show.author.as_deref(),
+    )?;
     db::set_enabled(&conn, &id, true)?;
     Ok(show.title)
 }
@@ -387,8 +396,8 @@ pub async fn poll_show(db: &Db, id: &str, feed_url: &str, since: Option<&str>) -
         queued += if status == "queued" { n } else { 0 };
     }
     conn.execute(
-        "UPDATE channels SET checked_at = ?1, image = COALESCE(image, ?2) WHERE id = ?3",
-        params![db::now(), show.image, id],
+        "UPDATE channels SET checked_at = ?1, image = COALESCE(image, ?2), subtitle = COALESCE(subtitle, ?3) WHERE id = ?4",
+        params![db::now(), show.image, show.author, id],
     )?;
     Ok(queued)
 }
@@ -403,6 +412,7 @@ mod tests {
   <title>Latent Space</title>
   <image><url>https://example.com/small.jpg</url></image>
   <itunes:image href="https://example.com/art.jpg"/>
+  <itunes:author>Latent Space Media</itunes:author>
   <item>
     <title>Older episode</title>
     <pubDate>Mon, 05 Oct 2026 09:00:00 GMT</pubDate>
@@ -430,6 +440,7 @@ mod tests {
     fn feed_episodes_newest_first_with_best_transcript_and_parsed_fields() {
         let show = parse_feed(FEED).unwrap();
         assert_eq!(show.title, "Latent Space");
+        assert_eq!(show.author.as_deref(), Some("Latent Space Media"));
         assert_eq!(
             show.image.as_deref(),
             Some("https://example.com/art.jpg"),

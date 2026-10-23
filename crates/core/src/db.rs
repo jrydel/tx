@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS channels (
     enabled_at TEXT,                       -- videos published before this are not auto-analyzed
     checked_at TEXT,
     feed_url   TEXT,                       -- podcasts: the show's RSS feed
-    image      TEXT                        -- podcasts: artwork URL
+    image      TEXT,                       -- avatar or podcast artwork URL
+    subtitle   TEXT                        -- @handle · 4.3M subscribers, or a podcast's author
 );
 CREATE TABLE IF NOT EXISTS videos (
     id          TEXT PRIMARY KEY,          -- YouTube video id, or ep-<hash> for a podcast episode
@@ -97,6 +98,7 @@ pub struct Channel {
     pub analyzed: i64,
     pub podcast: bool,
     pub image: Option<String>,
+    pub subtitle: Option<String>,
 }
 
 pub fn now() -> String {
@@ -117,6 +119,7 @@ pub fn connect() -> Result<Connection> {
         ("videos", "transcript_type", "TEXT"),
         ("channels", "feed_url", "TEXT"),
         ("channels", "image", "TEXT"),
+        ("channels", "subtitle", "TEXT"),
     ] {
         let exists = conn
             .prepare(&format!(
@@ -232,6 +235,20 @@ pub fn analyzed(
         .query_map(params![min_relevance, since, limit], video_row)?
         .collect::<rusqlite::Result<_>>()?;
     Ok(rows)
+}
+
+/// Remember what a channel's page or yt-dlp told about it; what wasn't found keeps its old value.
+pub fn save_details(
+    conn: &Connection,
+    id: &str,
+    image: Option<&str>,
+    subtitle: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE channels SET image = COALESCE(?1, image), subtitle = COALESCE(?2, subtitle) WHERE id = ?3",
+        params![image, subtitle, id],
+    )?;
+    Ok(())
 }
 
 pub fn upsert_channel(conn: &Connection, id: &str, title: &str) -> Result<()> {
@@ -351,7 +368,7 @@ pub fn channels(conn: &Connection) -> Result<Vec<Channel>> {
         .prepare(
             "SELECT c.id, c.title, c.enabled, c.checked_at, \
              (SELECT COUNT(*) FROM videos v WHERE v.channel_id = c.id AND v.status = 'done'), \
-             c.feed_url IS NOT NULL, c.image \
+             c.feed_url IS NOT NULL, c.image, c.subtitle \
              FROM channels c ORDER BY c.title COLLATE NOCASE",
         )?
         .query_map([], |r| {
@@ -363,6 +380,7 @@ pub fn channels(conn: &Connection) -> Result<Vec<Channel>> {
                 analyzed: r.get(4)?,
                 podcast: r.get(5)?,
                 image: r.get(6)?,
+                subtitle: r.get(7)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
@@ -400,6 +418,18 @@ mod tests {
         let mut ids: Vec<String> = v.into_iter().map(|v| v.id).collect();
         ids.sort();
         ids
+    }
+
+    #[test]
+    fn details_fill_in_and_keep_what_a_later_lookup_lacks() {
+        let conn = memory();
+        upsert_channel(&conn, "UC1", "One").unwrap();
+        save_details(&conn, "UC1", Some("https://yt3.ggpht.com/a"), None).unwrap();
+        save_details(&conn, "UC1", None, Some("@one · 5 subscribers")).unwrap();
+        save_details(&conn, "UC1", None, None).unwrap();
+        let c = &channels(&conn).unwrap()[0];
+        assert_eq!(c.image.as_deref(), Some("https://yt3.ggpht.com/a"));
+        assert_eq!(c.subtitle.as_deref(), Some("@one · 5 subscribers"));
     }
 
     #[test]

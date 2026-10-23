@@ -122,7 +122,8 @@ fn save_channels(db: &Db, found: &[(String, String)]) -> Result<(usize, usize)> 
     Ok((found.len(), db::channels(&conn)?.len() - known))
 }
 
-static CHANNEL_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^UC[\w-]{22}$").unwrap());
+pub(crate) static CHANNEL_ID: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^UC[\w-]{22}$").unwrap());
 
 /// Watch a channel or podcast given an @handle, channel URL, any of its video URLs, a podcast
 /// feed URL, or the id of a channel tx already knows (from an import).
@@ -174,6 +175,14 @@ pub async fn add_channel(db: &Db, reference: &str) -> Result<String> {
         .unwrap_or(id);
     let conn = db.lock().unwrap();
     db::upsert_channel(&conn, id, title)?;
+    // The avatar, handle and subscriber count came with the lookup.
+    let found = crate::details::from_ytdlp(&info);
+    db::save_details(
+        &conn,
+        id,
+        found.thumbnail.as_deref(),
+        found.subtitle.as_deref(),
+    )?;
     db::set_enabled(&conn, id, true)?;
     Ok(title.to_string())
 }

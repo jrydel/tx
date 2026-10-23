@@ -62,6 +62,9 @@ fn tools() -> Value {
         { "name": "search_sources", "description": "Search YouTube channels and podcasts by name for the setup panel's autocomplete.",
           "inputSchema": { "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] },
           "_meta": { "ui": { "visibility": ["app"] } } },
+        { "name": "channel_details", "description": "Avatars and subtitles (@handle · subscribers) of channels and shows the setup panel lists; reads them from YouTube when tx doesn't have them yet (for the setup panel).",
+          "inputSchema": { "type": "object", "properties": { "ids": { "type": "array", "maxItems": 30, "items": { "type": "string" }, "description": "Channel or show ids from the onboarding panel" } }, "required": ["ids"] },
+          "_meta": { "ui": { "visibility": ["app"] } } },
         { "name": "suggest_channels", "description": "Have the user's AI pick which imported channels fit their profile (for the setup panel).",
           "inputSchema": { "type": "object", "properties": {} },
           "_meta": { "ui": { "visibility": ["app"] } } },
@@ -755,12 +758,13 @@ async fn handle(db: &Db, session: &mut Session, msg: &Value) -> Option<Value> {
                 }
                 "set_daily_brief" => guide::set_daily_brief(db, args, &session.client).map(text),
                 // The setup panel's own tools: structured results for the view, plus text for any agent.
-                "search_sources" | "suggest_channels" | "screen_now" => {
+                "search_sources" | "channel_details" | "suggest_channels" | "screen_now" => {
                     let out = match name {
                         "search_sources" => {
                             guide::search_sources(db, args["query"].as_str().unwrap_or_default())
                                 .await
                         }
+                        "channel_details" => guide::channel_details(db, args).await,
                         "suggest_channels" => guide::suggest_channels(db, &session.client).await,
                         _ => guide::screen_now(db, &session.client).await,
                     };
@@ -769,7 +773,7 @@ async fn handle(db: &Db, session: &mut Session, msg: &Value) -> Option<Value> {
                 _ => call(db, name, args).await.map(text),
             };
             // First use in an app: until setup is done, steer the agent to the setup panel.
-            const SETUP: [&str; 13] = [
+            const SETUP: [&str; 14] = [
                 "status",
                 "onboarding",
                 "set_profile",
@@ -781,6 +785,7 @@ async fn handle(db: &Db, session: &mut Session, msg: &Value) -> Option<Value> {
                 "list_channels",
                 "set_daily_brief",
                 "search_sources",
+                "channel_details",
                 "suggest_channels",
                 "screen_now",
             ];
