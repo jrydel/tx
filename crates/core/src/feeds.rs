@@ -226,17 +226,69 @@ pub fn initial_status(published: &str, watching_since: Option<&str>) -> &'static
     }
 }
 
+/// When YouTube's feed is down (it 404s for hours at a time): the channel's Videos tab via
+/// yt-dlp, newest first, without dates.
+async fn videos_tab(channel_id: &str) -> Result<Vec<Entry>> {
+    let info = ytdlp::json(vec![
+        "--flat-playlist".into(),
+        "-J".into(),
+        "--playlist-items".into(),
+        "1:15".into(),
+        format!("https://www.youtube.com/channel/{channel_id}/videos").into(),
+    ])
+    .await?;
+    Ok(info["entries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| {
+            Some(Entry {
+                id: e["id"].as_str()?.to_string(),
+                title: e["title"].as_str().unwrap_or_default().to_string(),
+                link: e["url"].as_str().unwrap_or_default().to_string(),
+                published: String::new(),
+            })
+        })
+        .collect())
+}
+
+/// A video's exact upload time, for new ones found without the feed.
+async fn published_at(video_id: &str) -> Option<String> {
+    let info = ytdlp::json(vec![
+        "-J".into(),
+        "--skip-download".into(),
+        "--no-playlist".into(),
+        format!("https://www.youtube.com/watch?v={video_id}").into(),
+    ])
+    .await
+    .ok()?;
+    let t = info["timestamp"]
+        .as_i64()
+        .or(info["release_timestamp"].as_i64())?;
+    Some(DateTime::from_timestamp(t, 0)?.to_rfc3339_opts(chrono::SecondsFormat::Secs, false))
+}
+
 /// Insert unseen videos and episodes of watched channels and podcasts; returns how many were queued.
 pub async fn poll(db: &Db) -> Result<usize> {
-    type Row = (String, String, Option<String>, Option<String>);
+    type Row = (
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
     let channels: Vec<Row> = {
         let conn = db.lock().unwrap();
-        conn.prepare("SELECT id, title, enabled_at, feed_url FROM channels WHERE enabled = 1")?
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
-            .collect::<rusqlite::Result<_>>()?
+        conn.prepare(
+            "SELECT id, title, enabled_at, feed_url, checked_at FROM channels WHERE enabled = 1",
+        )?
+        .query_map([], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })?
+        .collect::<rusqlite::Result<_>>()?
     };
     let mut queued = 0;
-    for (id, title, since, feed_url) in channels {
+    for (id, title, since, feed_url, checked_at) in channels {
         if let Some(feed_url) = feed_url {
             match crate::podcasts::poll_show(db, &id, &feed_url, since.as_deref()).await {
                 Ok(n) => queued += n,
@@ -246,24 +298,50 @@ pub async fn poll(db: &Db) -> Result<usize> {
         }
         let entries = match feed(&id).await {
             Ok(e) => e,
-            Err(e) => {
-                log::warn!("feed failed for {title}: {e:#}");
-                continue;
-            }
+            Err(e) => match videos_tab(&id).await {
+                Ok(v) => v,
+                Err(e2) => {
+                    log::warn!("feed failed for {title}: {e:#}; Videos tab failed too: {e2:#}");
+                    continue;
+                }
+            },
         };
-        let conn = db.lock().unwrap();
-        for e in entries
+        let now = chrono::Utc::now();
+        for (i, e) in entries
             .iter()
             .filter(|e| !e.id.is_empty() && !e.link.contains("/shorts/"))
+            .enumerate()
         {
-            let status = initial_status(&e.published, since.as_deref());
-            let n = conn.execute(
+            let known = db
+                .lock()
+                .unwrap()
+                .prepare("SELECT 1 FROM videos WHERE id = ?1")?
+                .exists([&e.id])?;
+            if known {
+                continue;
+            }
+            let (published, status) = if !e.published.is_empty() {
+                (
+                    e.published.clone(),
+                    initial_status(&e.published, since.as_deref()),
+                )
+            } else if checked_at.is_some() {
+                // Not there at the last check, so it's new: look up when exactly.
+                let at = published_at(&e.id).await.unwrap_or_else(db::now);
+                (at, "queued")
+            } else {
+                // First check without a feed: these uploads predate following. Keep the tab's order.
+                let at = (now - chrono::Duration::minutes(i as i64 + 1))
+                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
+                (at, "skipped")
+            };
+            let n = db.lock().unwrap().execute(
                 "INSERT OR IGNORE INTO videos(id, channel_id, title, url, published, status) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-                params![e.id, id, e.title, format!("https://www.youtube.com/watch?v={}", e.id), e.published, status],
+                params![e.id, id, e.title, format!("https://www.youtube.com/watch?v={}", e.id), published, status],
             )?;
             queued += if status == "queued" { n } else { 0 };
         }
-        conn.execute(
+        db.lock().unwrap().execute(
             "UPDATE channels SET checked_at = ?1 WHERE id = ?2",
             params![db::now(), id],
         )?;
