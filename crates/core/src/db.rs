@@ -63,7 +63,7 @@ impl Default for Settings {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct Video {
     pub id: String,
     pub title: String,

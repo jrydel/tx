@@ -159,7 +159,7 @@ Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/s
 | `feed` | recently analyzed videos |
 | `show_videos` | your brief: the last 7 days of uploads from what you follow, with a debrief across them written by your agent, then videos and episodes grouped Watch / Skim / Skip, each with a timeline of where the value is, TL;DR and takeaways that jump to the moment ([MCP App](https://modelcontextprotocol.io/extensions/apps/overview)); markdown in apps without MCP Apps. With ids it shows just those |
 | `write_digest` | markdown digest + notification; asks your agent for a debrief when the week's analyzed videos changed |
-| `save_debrief` | store your agent's debrief across the last 7 days' analyzed videos (headline, summary, threads) |
+| `save_debrief` | store your agent's debrief across the last 7 days' analyzed videos (headline, summary, threads, and a script of clips for the narrated show) |
 
 Only uploads published after you start watching a channel are screened automatically, so adding a channel doesn't trigger a backlog.
 

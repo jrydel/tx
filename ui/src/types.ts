@@ -41,6 +41,15 @@ export interface Debrief {
   /** The analyzed videos it was written over. */
   video_ids: string[]
   written_at: string
+  /** The narrated show ("Watch your debrief"), when the AI wrote one. */
+  script?: Script | null
+}
+
+/** A narrated show over the week: the intro, then for each clip a line and the stretch to play, then the outro. */
+export interface Script {
+  intro: string
+  clips: { video_id: string; from: string; to: string; start: number; end: number; say: string }[]
+  outro?: string | null
 }
 
 export interface BriefData {

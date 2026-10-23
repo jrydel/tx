@@ -39,6 +39,11 @@ const CARDS_HTML: &str = include_str!("videos.html");
 fn tools() -> Value {
     let video_id = json!({ "type": "string", "description": "Video or episode id from check_new_videos, recent_videos or feed" });
     let stamp = json!({ "type": "string", "description": "Timestamp mm:ss or h:mm:ss from the transcript" });
+    let clip = json!({ "type": "object", "required": ["video_id", "from", "to", "say"], "properties": {
+        "video_id": { "type": "string", "description": "An analyzed YouTube video of the week (not a podcast episode)" },
+        "from": { "type": "string", "description": "mm:ss or h:mm:ss where the clip starts" },
+        "to": { "type": "string", "description": "mm:ss or h:mm:ss where it ends; 1-6 minutes after from, 10 at most" },
+        "say": { "type": "string", "description": "The narrator's line before the clip: why this stretch matters to this user. 300 characters at most, no hype, no invented facts" } } });
     json!([
         { "name": "status", "description": "Where the user stands with tx (profile, what they follow, what's waiting, daily brief) and the next step to guide them to, with things they could say. Call it at the start of a conversation about tx and whenever the user seems unsure what to do.",
           "inputSchema": { "type": "object", "properties": {} } },
@@ -107,14 +112,18 @@ fn tools() -> Value {
           "_meta": { "ui": { "resourceUri": CARDS_URI } } },
         { "name": "write_digest", "description": "Write a markdown digest of everything analyzed since the last digest, and notify the user if something is worth their time. When the last 7 days' analyzed videos changed since the last debrief, the reply asks you to write one with save_debrief.",
           "inputSchema": { "type": "object", "properties": {} } },
-        { "name": "save_debrief", "description": "Store your debrief across the last 7 days' analyzed videos: what they add up to for this user, what to watch first, and the themes that run through two or more of them. Call it when write_digest asks for it. It shows on top of the user's brief.",
+        { "name": "save_debrief", "description": "Store your debrief across the last 7 days' analyzed videos: what they add up to for this user, what to watch first, and the themes that run through two or more of them, plus a script for a narrated show over the week's best YouTube stretches (an intro, then a narrator line and the stretch to play for each clip, then an outro). Call it when write_digest asks for it. It shows on top of the user's brief; the script plays from its Watch your debrief button.",
           "inputSchema": { "type": "object", "required": ["headline", "summary"], "properties": {
             "headline": { "type": "string", "description": "One sentence, 200 characters at most" },
             "summary": { "type": "string", "description": "2-4 sentences, 800 characters at most: what the week adds up to for this user and what to watch first" },
             "threads": { "type": "array", "maxItems": 3, "description": "Themes that run through two or more videos", "items": { "type": "object", "required": ["title", "text", "video_ids"], "properties": {
                 "title": { "type": "string", "description": "A few words" },
                 "text": { "type": "string", "description": "1-2 sentences" },
-                "video_ids": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Ids from the analyses write_digest listed" } } } } } } }
+                "video_ids": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Ids from the analyses write_digest listed" } } } },
+            "script": { "type": "object", "required": ["intro", "clips"], "description": "A narrated show over the week's best stretches for this user, best first. Invalid clips are dropped.", "properties": {
+                "intro": { "type": "string", "description": "One or two sentences framing the week, spoken first, 400 characters at most" },
+                "clips": { "type": "array", "minItems": 3, "maxItems": 8, "items": clip },
+                "outro": { "type": "string", "description": "A short closing line, 300 characters at most" } } } } } }
     ])
 }
 
@@ -437,10 +446,11 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
         "save_debrief" => {
             let d = debrief::save(&db.lock().unwrap(), args)?;
             format!(
-                "Saved: \"{}\", {} threads over {} videos. Next, if you're talking with the user, show_videos without ids.",
+                "Saved: \"{}\", {} threads over {} videos, {} clips. Next, if you're talking with the user, show_videos without ids.",
                 d.headline,
                 d.threads.len(),
-                d.video_ids.len()
+                d.video_ids.len(),
+                d.script.as_ref().map_or(0, |s| s.clips.len())
             )
         }
         other => bail!("unknown tool {other}"),
@@ -705,6 +715,9 @@ async fn handle(db: &Db, session: &mut Session, msg: &Value) -> Option<Value> {
                 "https://yt3.ggpht.com",
                 "https://yt3.googleusercontent.com",
                 "https://*.mzstatic.com",
+                // The YouTube IFrame API script and player assets.
+                "https://www.youtube.com",
+                "https://s.ytimg.com",
             ]
             .map(String::from)
             .to_vec();
@@ -720,7 +733,10 @@ async fn handle(db: &Db, session: &mut Session, msg: &Value) -> Option<Value> {
             }
             Ok(json!({ "contents": [{
                 "uri": CARDS_URI, "mimeType": CARDS_MIME, "text": CARDS_HTML,
-                "_meta": { "ui": { "csp": { "resourceDomains": hosts }, "prefersBorder": false } },
+                "_meta": { "ui": { "csp": {
+                    "resourceDomains": hosts,
+                    "frameDomains": ["https://www.youtube.com", "https://www.youtube-nocookie.com"],
+                }, "prefersBorder": false } },
             }] }))
         }
         "resources/read" => Err(json!({ "code": -32002, "message": "resource not found" })),

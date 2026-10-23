@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { ArrowLeftIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ExpandButton, ExtLink, GROUPS, Thumb, kindColor, kindOf, type Kind } from "@/components/bits"
 import { Landing } from "@/components/landing"
+import { Show, showLength, showOf } from "@/components/show"
 import { cn } from "@/lib/utils"
 import { released, secs, type Locale } from "@/lib/format"
 import { sendMessage, useHost } from "@/host"
@@ -11,46 +12,51 @@ import type { BriefData, Card } from "@/types"
 
 const label = "mt-6 mb-2 block text-[11px] font-bold tracking-[.08em] text-faint uppercase"
 
+/** What's open over the landing: a video's page, or the narrated show. */
+type Open = { kind: "video"; id: string } | { kind: "show" }
+
 /**
- * The brief: a landing page for the period (or the list of videos it was asked for), and a page per video. One video
- * is shown as its page straight away. The frame scrolls inside; coming back from a video lands where you were.
+ * The brief: a landing page for the period (or the list of videos it was asked for), a page per video, and the narrated
+ * show. One video is shown as its page straight away. The frame scrolls inside; coming back lands where you were.
  */
 export function Brief({ data }: { data: BriefData }) {
   const host = useHost()
   const loc: Locale = host
   const videos = data.videos
-  // The open video belongs to the result it was opened in: a new tool result shows its landing again.
-  const [opened, setOpened] = useState<{ in: Card[]; id: string } | null>(null)
-  const openId = opened?.in === videos ? opened.id : null
-  const setOpenId = (id: string | null) => setOpened(id ? { in: videos, id } : null)
+  // What's open belongs to the result it was opened in: a new tool result shows its landing again.
+  const [opened, setOpened] = useState<{ in: Card[]; what: Open } | null>(null)
+  const what = opened?.in === videos ? opened.what : null
   const scroller = useRef<HTMLDivElement>(null)
   const landingTop = useRef(0)
+  const show = useMemo(() => showOf(data), [data])
 
-  const open = (id: string) => {
-    landingTop.current = scroller.current?.scrollTop ?? 0
-    setOpenId(id)
+  const go = (w: Open | null) => {
+    if (w && !what) landingTop.current = scroller.current?.scrollTop ?? 0
+    setOpened(w ? { in: videos, what: w } : null)
   }
   useLayoutEffect(() => {
-    scroller.current?.scrollTo(0, openId ? 0 : landingTop.current)
-  }, [openId])
+    scroller.current?.scrollTo(0, what ? 0 : landingTop.current)
+  }, [what])
   useEffect(() => {
-    if (!openId) return
+    if (!what) return
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && !e.defaultPrevented && setOpened(null)
     addEventListener("keydown", onKey)
     return () => removeEventListener("keydown", onKey)
-  }, [openId])
+  }, [what])
 
   const single = videos.length === 1
-  const video = single ? videos[0] : videos.find((v) => v.id === openId)
+  const video = single ? videos[0] : what?.kind === "video" ? videos.find((v) => v.id === what.id) : undefined
   return (
     <div ref={scroller} className="thin @container min-h-0 flex-1 overflow-y-auto rounded-xl border bg-card">
-      {video ? (
+      {what?.kind === "show" && show ? (
+        <Show show={show} loc={loc} onClose={() => go(null)} />
+      ) : video ? (
         <div className="mx-auto max-w-[860px] px-4 pt-3 pb-8 @min-[900px]:px-6">
           <div className="mb-4 flex items-center justify-between gap-3">
             {single ? (
               <span className="font-slate text-[17px]">Your brief</span>
             ) : (
-              <Button variant="ghost" size="sm" className="-ml-2.5 font-semibold text-muted-foreground" onClick={() => setOpenId(null)}>
+              <Button variant="ghost" size="sm" className="-ml-2.5 font-semibold text-muted-foreground" onClick={() => go(null)}>
                 <ArrowLeftIcon data-icon="inline-start" />
                 Your brief
               </Button>
@@ -60,7 +66,13 @@ export function Brief({ data }: { data: BriefData }) {
           <Detail v={video} loc={loc} />
         </div>
       ) : (
-        <Landing data={data} loc={loc} actions={<ExpandButton />} open={open} />
+        <Landing
+          data={data}
+          loc={loc}
+          actions={<ExpandButton />}
+          open={(id) => go({ kind: "video", id })}
+          watch={show ? { seconds: showLength(show), clips: show.clips.length, start: () => go({ kind: "show" }) } : undefined}
+        />
       )}
     </div>
   )

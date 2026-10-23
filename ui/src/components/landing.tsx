@@ -1,4 +1,6 @@
 import { memo, type CSSProperties, type ReactNode } from "react"
+import { PlayIcon } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ExtLink, GROUPS, Thumb, kindColor, kindOf, type Kind } from "@/components/bits"
 import { cn } from "@/lib/utils"
@@ -8,14 +10,14 @@ import type { BriefData, Card, Debrief } from "@/types"
 const eyebrow = "m-0 text-[11px] font-bold tracking-[.09em] text-faint uppercase"
 
 /** "1 h 12 min", "38 min". */
-function span(s: number): string {
+export function span(s: number): string {
   const m = Math.round(s / 60)
   if (m < 60) return `${m} min`
   return m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} h`
 }
 
 /** The stretch of a video worth watching, in seconds: all of a Watch, the range of a Skim, none of the rest. */
-function worth(v: Card): [number, number] | null {
+export function worth(v: Card): [number, number] | null {
   const total = secs(v.length)
   if (!total) return null
   const k = kindOf(v)
@@ -32,13 +34,15 @@ export interface LandingProps {
   /** Header controls (full screen). */
   actions: ReactNode
   open: (id: string) => void
+  /** The narrated show over the picks, when there's anything to play. */
+  watch?: { seconds: number; clips: number; start: () => void }
 }
 
 /**
  * The brief as a landing page: how much of the period is worth your time (the reel), what it adds up to (the debrief
  * your AI wrote), the picks, and everything else in a quieter column. Every video opens its own page.
  */
-export function Landing({ data, loc, actions, open }: LandingProps) {
+export function Landing({ data, loc, actions, open, watch }: LandingProps) {
   const videos = data.videos
   const of = (k: Kind) => videos.filter((v) => kindOf(v) === k)
   const picks = videos.filter((v) => kindOf(v) === "watch" || kindOf(v) === "skim")
@@ -59,6 +63,17 @@ export function Landing({ data, loc, actions, open }: LandingProps) {
 
       <section aria-labelledby="cut" className="col-span-full mt-5 mb-8 @min-[900px]:mt-7 @min-[900px]:mb-11">
         <Reel videos={videos} days={data.days} loc={loc} open={open} />
+        {watch && (
+          <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <Button onClick={watch.start}>
+              <PlayIcon data-icon="inline-start" />
+              Watch your debrief
+            </Button>
+            <span className="text-[12.5px] text-muted-foreground tabular-nums">
+              {span(watch.seconds)} · {plural(watch.clips, "clip")}, narrated
+            </span>
+          </div>
+        )}
       </section>
 
       <main className="min-w-0">
