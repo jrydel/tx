@@ -45,19 +45,16 @@ export interface Debrief {
   script?: Script | null
 }
 
-/** A reel over the week: the intro, then for each clip a line over the fast-forwarded stretch and its key moment, then the outro. */
+/**
+ * The narrated debrief video, written by the user's AI: one chapter (segment) per channel, each a takeaway and then
+ * the key parts, every part set up by a narrator line and then played as it is.
+ */
 export interface Script {
   intro: string
-  clips: {
+  segments: {
     video_id: string
-    from: string
-    to: string
-    start: number
-    end: number
-    say: string
-    /** The few seconds where the point is said, played at normal speed with sound. */
-    moment_start?: number | null
-    moment_end?: number | null
+    intro: string
+    parts: { say: string; moment_from: string; moment_to: string; moment_start: number; moment_end: number }[]
   }[]
   outro?: string | null
 }

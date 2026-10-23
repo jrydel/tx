@@ -21,13 +21,15 @@ const MAX_SUMMARY: usize = 800;
 const MAX_THREAD_TITLE: usize = 80;
 const MAX_THREAD_TEXT: usize = 400;
 const MAX_INTRO: usize = 160;
-const MAX_SAY: usize = 140;
+const MAX_SEGMENT_INTRO: usize = 200;
+const MAX_SAY: usize = 160;
 const MAX_OUTRO: usize = 120;
-const MAX_CLIPS: usize = 6;
-/// Longest stretch of one video a clip plays, in seconds.
-const MAX_CLIP_SECS: u64 = 600;
-/// Shortest and longest key moment of a clip, in seconds.
-const MIN_MOMENT_SECS: u64 = 4;
+const MAX_SEGMENTS: usize = 8;
+/// Parts a segment needs to stay, and parts it keeps at most.
+const MIN_PARTS: usize = 2;
+const MAX_PARTS: usize = 4;
+/// Shortest and longest moment of a part, in seconds.
+const MIN_MOMENT_SECS: u64 = 6;
 const MAX_MOMENT_SECS: u64 = 25;
 /// A debrief is only worth writing over this many analyzed videos.
 const MIN_VIDEOS: usize = 2;
@@ -41,39 +43,38 @@ pub struct Thread {
     pub video_ids: Vec<String>,
 }
 
-/// One stretch of a YouTube video in the narrated show, with the line spoken before it. The
-/// stretch plays muted and fast behind the line; the key moment inside it plays with sound.
+/// One part of a segment: the narrator's line that sets it up, then the stretch of the video where
+/// it is said. The line runs as captions over the video fast-forwarded behind it; the stretch
+/// then plays at normal speed with sound.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
-pub struct Clip {
-    pub video_id: String,
-    /// "mm:ss" or "h:mm:ss" where the clip starts.
-    pub from: String,
-    pub to: String,
-    /// `from` and `to` in seconds.
-    pub start: u64,
-    pub end: u64,
-    /// The narrator's line, spoken before the clip.
+pub struct Part {
     pub say: String,
-    /// Where the key point is said, inside `start`..`end`, 4-25 seconds. None when the agent gave
-    /// no usable moment.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub moment_from: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub moment_to: Option<String>,
+    /// "mm:ss" or "h:mm:ss" where the stretch starts and ends, 6-25 seconds apart.
+    pub moment_from: String,
+    pub moment_to: String,
     /// `moment_from` and `moment_to` in seconds.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub moment_start: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub moment_end: Option<u64>,
+    pub moment_start: u64,
+    pub moment_end: u64,
 }
 
-/// The narrated show: an intro, one clip per line of narration, an outro.
+/// One chapter of the narrated video: a YouTube video with the narrator's takeaway and 2-4 parts
+/// sorted by time, not overlapping.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Segment {
+    pub video_id: String,
+    /// The narrator's takeaway for this video.
+    pub intro: String,
+    pub parts: Vec<Part>,
+}
+
+/// The narrated video: an intro, one segment per channel, an outro.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Script {
     pub intro: String,
-    pub clips: Vec<Clip>,
+    pub segments: Vec<Segment>,
     /// Empty when there is none.
     pub outro: String,
 }
@@ -93,10 +94,7 @@ pub struct Debrief {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
-pub struct ClipDraft {
-    pub video_id: String,
-    pub from: String,
-    pub to: String,
+pub struct PartDraft {
     pub say: String,
     pub moment_from: String,
     pub moment_to: String,
@@ -104,9 +102,17 @@ pub struct ClipDraft {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
+pub struct SegmentDraft {
+    pub video_id: String,
+    pub intro: String,
+    pub parts: Vec<PartDraft>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
 pub struct ScriptDraft {
     pub intro: String,
-    pub clips: Vec<ClipDraft>,
+    pub segments: Vec<SegmentDraft>,
     pub outro: String,
 }
 
@@ -130,55 +136,89 @@ fn clamp(s: &str, max: usize) -> String {
     format!("{}…", cut.trim_end())
 }
 
-/// The key moment of a clip spanning `start`..`end` seconds as (start, end) seconds, or None when
-/// there is no valid one: both timestamps parse, it starts inside the clip and lasts at least 4
-/// seconds. A moment running past `end` is cut there, one longer than 25 seconds at 25.
-fn clean_moment(from: &str, to: &str, start: u64, end: u64) -> Option<(u64, u64)> {
-    let from = report::seconds(from).filter(|f| (start..end).contains(f))?;
-    let to = report::seconds(to)?.min(end).min(from + MAX_MOMENT_SECS);
+/// The moment of a part as (start, end) seconds in a video of `length` seconds (when known), or
+/// None when there is no valid one: both timestamps parse and it starts inside the video. A
+/// moment running past the video's end is cut there, one longer than 25 seconds at 25, and one
+/// that ends up shorter than 6 seconds is dropped.
+fn clean_moment(from: &str, to: &str, length: Option<u64>) -> Option<(u64, u64)> {
+    let from = report::seconds(from).filter(|f| length.is_none_or(|l| *f < l))?;
+    let mut to = report::seconds(to)?.min(from + MAX_MOMENT_SECS);
+    if let Some(length) = length {
+        to = to.min(length);
+    }
     (to >= from + MIN_MOMENT_SECS).then_some((from, to))
 }
 
-/// A validated clip, or None when it isn't one: the video must be an analyzed YouTube video of
-/// the week, `from` and `to` timestamps with `to` after `from`, and a line to say. The clip is cut
-/// at 10 minutes and at the video's length when known. An invalid key moment is dropped alone.
-fn clean_clip(c: ClipDraft, week: &[Video]) -> Option<Clip> {
-    let id = c.video_id.trim();
-    let video = week.iter().find(|v| v.id == id && !v.podcast)?;
-    let start = report::seconds(&c.from)?;
-    let mut end = report::seconds(&c.to)?.min(start + MAX_CLIP_SECS);
-    if let Some(length) = video.duration.filter(|d| *d > 0.0) {
-        end = end.min(length as u64);
-    }
-    let say = clamp(&c.say, MAX_SAY);
-    let moment = clean_moment(&c.moment_from, &c.moment_to, start, end);
-    (end > start && !say.is_empty()).then(|| Clip {
-        video_id: video.id.clone(),
-        from: fmt_time(start as f64),
-        to: fmt_time(end as f64),
-        start,
-        end,
+/// A validated part, or None when it has no line to say or no valid moment.
+fn clean_part(p: PartDraft, length: Option<u64>) -> Option<Part> {
+    let say = clamp(&p.say, MAX_SAY);
+    let (start, end) = clean_moment(&p.moment_from, &p.moment_to, length)?;
+    (!say.is_empty()).then(|| Part {
         say,
-        moment_from: moment.map(|(from, _)| fmt_time(from as f64)),
-        moment_to: moment.map(|(_, to)| fmt_time(to as f64)),
-        moment_start: moment.map(|(from, _)| from),
-        moment_end: moment.map(|(_, to)| to),
+        moment_from: fmt_time(start as f64),
+        moment_to: fmt_time(end as f64),
+        moment_start: start,
+        moment_end: end,
     })
 }
 
-/// The agent's script without its invalid clips: at most 8 clips in the agent's order, None when
-/// there is no intro or no clip survives.
+/// A validated segment, or None when it isn't one: the video must be an analyzed YouTube video of
+/// the week, there must be a takeaway to say, and at least 2 parts must survive. The parts are
+/// sorted by time, those overlapping an earlier one dropped, and at most 4 kept.
+fn clean_segment(s: SegmentDraft, week: &[Video]) -> Option<Segment> {
+    let id = s.video_id.trim();
+    let video = week.iter().find(|v| v.id == id && !v.podcast)?;
+    let intro = clamp(&s.intro, MAX_SEGMENT_INTRO);
+    let length = video.duration.filter(|d| *d > 0.0).map(|d| d as u64);
+    let mut parts: Vec<Part> = s
+        .parts
+        .into_iter()
+        .filter_map(|p| clean_part(p, length))
+        .collect();
+    parts.sort_by_key(|p| (p.moment_start, p.moment_end));
+    let mut kept: Vec<Part> = Vec::new();
+    for p in parts {
+        if kept
+            .last()
+            .is_none_or(|prev| p.moment_start >= prev.moment_end)
+        {
+            kept.push(p);
+        }
+    }
+    kept.truncate(MAX_PARTS);
+    (!intro.is_empty() && kept.len() >= MIN_PARTS).then(|| Segment {
+        video_id: video.id.clone(),
+        intro,
+        parts: kept,
+    })
+}
+
+/// The agent's script without its invalid segments: at most 8 segments in the agent's order, one
+/// per channel (a later segment of a channel already used is dropped), None when there is no
+/// intro or no segment survives.
 fn clean_script(draft: ScriptDraft, week: &[Video]) -> Option<Script> {
     let intro = clamp(&draft.intro, MAX_INTRO);
-    let clips: Vec<Clip> = draft
-        .clips
-        .into_iter()
-        .filter_map(|c| clean_clip(c, week))
-        .take(MAX_CLIPS)
-        .collect();
-    (!intro.is_empty() && !clips.is_empty()).then(|| Script {
+    let mut channels: Vec<&str> = Vec::new();
+    let mut segments: Vec<Segment> = Vec::new();
+    for draft in draft.segments {
+        if segments.len() == MAX_SEGMENTS {
+            break;
+        }
+        let Some(segment) = clean_segment(draft, week) else {
+            continue;
+        };
+        let channel = week
+            .iter()
+            .find(|v| v.id == segment.video_id)
+            .map_or("", |v| v.channel_id.as_str());
+        if !channels.contains(&channel) {
+            channels.push(channel);
+            segments.push(segment);
+        }
+    }
+    (!intro.is_empty() && !segments.is_empty()).then(|| Script {
         intro,
-        clips,
+        segments,
         outro: clamp(&draft.outro, MAX_OUTRO),
     })
 }
@@ -291,14 +331,9 @@ pub fn request(conn: &Connection) -> Result<String> {
             p.advice,
         ));
         if v.podcast {
-            s.push_str("Podcast episode: no clip.\n");
-        } else {
-            if let Some(d) = v.duration.filter(|d| *d > 0.0) {
-                s.push_str(&format!("Length: {}\n", fmt_time(d)));
-            }
-            if let (Some(from), Some(to)) = (&p.skim_from, &p.skim_to) {
-                s.push_str(&format!("Skim range: {from}–{to}\n"));
-            }
+            s.push_str("Podcast episode: no segment.\n");
+        } else if let Some(d) = v.duration.filter(|d| *d > 0.0) {
+            s.push_str(&format!("Length: {}\n", fmt_time(d)));
         }
         s.push_str(&format!(
             "Verdict: {}\nTL;DR: {}\n",
@@ -317,13 +352,18 @@ pub fn request(conn: &Connection) -> Result<String> {
          {MAX_SUMMARY} at most), up to {MAX_THREADS} `threads` (`title`, `text`, `video_ids`) and a `script`. Say what these videos add up to for \
          the profile's owner, what to watch first, and which themes run through two or more of them (each thread names the ids \
          it runs through).\n\n\
-         The `script` is a short reel for this person, about a minute: `intro` (one short sentence that frames the week, \
-         {MAX_INTRO} characters at most), 3-6 `clips`, best first, and `outro` (one short line, {MAX_OUTRO} at most). Each clip is \
-         `video_id` (podcast episodes can't be clips), `say`, `moment_from`/`moment_to` and `from`/`to`. `say` is one punchy \
-         sentence (120 characters at most) on why the clip matters to them; no hype. \
-         `moment_from`/`moment_to` (mm:ss or h:mm:ss in that YouTube video) are the 8-15 seconds where the key point is said, taken \
-         from the analyses' takeaway timestamps; the clip plays them at normal speed with sound. `from`/`to` is the stretch around \
-         the moment, 1-6 minutes (10 at most), from the skim ranges; it plays fast and muted behind `say`.\n\n\
+         The `script` is a narrated video over the week for this person: `intro` (one sentence framing the week, \
+         {MAX_INTRO} characters at most), up to {MAX_SEGMENTS} `segments`, best first, and `outro` (one short line, {MAX_OUTRO} at \
+         most). A segment is one YouTube video (podcast episodes can't be segments) and there is one segment per channel: pick the \
+         best video of each. It has `video_id`, `intro` (the narrator's takeaway for this video, third person, {MAX_SEGMENT_INTRO} \
+         characters at most, e.g. \"Theo on this week's security leaks: he argues the real story is stolen API keys, and why that \
+         matters for you.\") and 3-4 `parts`, each with `say` (a narrator line that sets up the part and ends by pointing at it, \
+         third person, {MAX_SAY} characters at most, e.g. \"He then shows how … — watch the next bit.\") and \
+         `moment_from`/`moment_to` (mm:ss or h:mm:ss in that video): the {MIN_MOMENT_SECS}-{MAX_MOMENT_SECS} seconds where the \
+         point is said, taken from the analyses' takeaway timestamps (a longer stretch is cut at {MAX_MOMENT_SECS} seconds, a \
+         shorter one dropped). Parts of a video must not overlap. The viewer reads each `say` as captions while the video runs \
+         fast in the background, then watches the part itself at normal speed with sound.\n\n\
+         Write as a narrator: third person about what the creator says and why it matters to this person (the profile), no hype. \
          Use only what the analyses above say; invent no facts. Write in the language the profile is written in."
     ));
     Ok(s)
@@ -342,9 +382,10 @@ mod tests {
         }
     }
 
-    fn video(id: &str, podcast: bool, duration: Option<f64>) -> Video {
+    fn video(id: &str, channel_id: &str, podcast: bool, duration: Option<f64>) -> Video {
         Video {
             id: id.into(),
+            channel_id: channel_id.into(),
             podcast,
             duration,
             ..Video::default()
@@ -352,7 +393,9 @@ mod tests {
     }
 
     fn week() -> Vec<Video> {
-        ["b", "a", "c"].map(|id| video(id, false, None)).to_vec()
+        ["b", "a", "c"]
+            .map(|id| video(id, "ch", false, None))
+            .to_vec()
     }
 
     #[test]
@@ -434,46 +477,81 @@ mod tests {
         }
     }
 
-    fn clip(id: &str, from: &str, to: &str, say: &str) -> ClipDraft {
-        ClipDraft {
-            video_id: id.into(),
-            from: from.into(),
-            to: to.into(),
+    fn part(say: &str, from: &str, to: &str) -> PartDraft {
+        PartDraft {
             say: say.into(),
-            ..ClipDraft::default()
+            moment_from: from.into(),
+            moment_to: to.into(),
         }
     }
 
-    fn script(clips: Vec<ClipDraft>) -> ScriptDraft {
+    /// A segment of `id` with the agent's `parts`.
+    fn segment(id: &str, parts: Vec<PartDraft>) -> SegmentDraft {
+        SegmentDraft {
+            video_id: id.into(),
+            intro: "Takeaway.".into(),
+            parts,
+        }
+    }
+
+    /// A segment of `id` with two valid parts, at 1:00 and 2:00.
+    fn good(id: &str) -> SegmentDraft {
+        segment(
+            id,
+            vec![part("One.", "1:00", "1:10"), part("Two.", "2:00", "2:10")],
+        )
+    }
+
+    fn script(segments: Vec<SegmentDraft>) -> ScriptDraft {
         ScriptDraft {
             intro: "The week.".into(),
-            clips,
+            segments,
             outro: "That's it.".into(),
         }
     }
 
-    /// The script `clean` makes of `script` over a week of YouTube videos "a" (length 20 min) and
-    /// "b" (length unknown) and the podcast episode "p".
+    /// The script `clean` makes of `script` over a week of YouTube videos "a" (channel 1, length
+    /// 20 min), "a2" (channel 1), "b" (channel 2, length unknown), "c" (channel 3) and the podcast
+    /// episode "p" (channel 4).
     fn cleaned(script: ScriptDraft) -> Option<Script> {
         let week = [
-            video("a", false, Some(1200.0)),
-            video("b", false, None),
-            video("p", true, Some(3000.0)),
+            video("a", "1", false, Some(1200.0)),
+            video("a2", "1", false, None),
+            video("b", "2", false, None),
+            video("c", "3", false, None),
+            video("p", "4", true, Some(3000.0)),
         ];
+        cleaned_over(script, &week)
+    }
+
+    fn cleaned_over(script: ScriptDraft, week: &[Video]) -> Option<Script> {
         let draft = Draft {
             headline: "H".into(),
             summary: "S".into(),
             script: Some(script),
             ..Draft::default()
         };
-        clean(draft, &week, String::new()).unwrap().script
+        clean(draft, week, String::new()).unwrap().script
+    }
+
+    fn ids(s: &Script) -> Vec<&str> {
+        s.segments.iter().map(|s| s.video_id.as_str()).collect()
     }
 
     #[test]
-    fn script_clips_are_normalized_and_keep_the_agents_order() {
+    fn script_segments_are_normalized_and_keep_the_agents_order() {
         let s = cleaned(script(vec![
-            clip(" b ", "[1:02:03]", "1:04:00", "  Later one first.  "),
-            clip("a", "2:05", "4:00", "Then this."),
+            SegmentDraft {
+                intro: "  Why it matters.  ".into(),
+                ..segment(
+                    " b ",
+                    vec![
+                        part("  Later bit.  ", "[1:02:03]", "1:02:20"),
+                        part("Earlier bit.", "5:00", "5:12"),
+                    ],
+                )
+            },
+            good("a"),
         ]))
         .unwrap();
         assert_eq!(
@@ -481,190 +559,277 @@ mod tests {
             ("The week.", "That's it.")
         );
         assert_eq!(
-            s.clips,
-            [
-                Clip {
-                    video_id: "b".into(),
-                    from: "1:02:03".into(),
-                    to: "1:04:00".into(),
-                    start: 3723,
-                    end: 3840,
-                    say: "Later one first.".into(),
-                    ..Clip::default()
-                },
-                Clip {
-                    video_id: "a".into(),
-                    from: "02:05".into(),
-                    to: "04:00".into(),
-                    start: 125,
-                    end: 240,
-                    say: "Then this.".into(),
-                    ..Clip::default()
-                },
-            ]
+            s.segments[0],
+            Segment {
+                video_id: "b".into(),
+                intro: "Why it matters.".into(),
+                parts: vec![
+                    Part {
+                        say: "Earlier bit.".into(),
+                        moment_from: "05:00".into(),
+                        moment_to: "05:12".into(),
+                        moment_start: 300,
+                        moment_end: 312,
+                    },
+                    Part {
+                        say: "Later bit.".into(),
+                        moment_from: "1:02:03".into(),
+                        moment_to: "1:02:20".into(),
+                        moment_start: 3723,
+                        moment_end: 3740,
+                    },
+                ],
+            },
+            "parts sorted by time, texts trimmed, timestamps re-formatted"
         );
+        assert_eq!(ids(&s), ["b", "a"], "segments keep the agent's order");
     }
 
     #[test]
-    fn script_drops_invalid_clips() {
+    fn script_keeps_one_segment_per_channel() {
         let s = cleaned(script(vec![
-            clip("p", "1:00", "3:00", "a podcast"),
-            clip("zzz", "1:00", "3:00", "unknown or not analyzed"),
-            clip("a", "3:00", "3:00", "empty"),
-            clip("a", "4:00", "3:00", "backwards"),
-            clip("a", "", "3:00", "no from"),
-            clip("a", "1:00", "soon", "no to"),
-            clip("a", "25:00", "26:00", "past the end"),
-            clip("a", "1:00", "3:00", " "),
-            clip("a", "1:00", "3:00", "fine"),
+            good("a"),
+            good("b"),
+            good("a2"),
+            good("a"),
+            good("c"),
         ]))
         .unwrap();
-        assert_eq!(s.clips.len(), 1);
-        assert_eq!((s.clips[0].start, s.clips[0].end), (60, 180));
-    }
-
-    #[test]
-    fn script_cuts_a_clip_at_ten_minutes_and_at_the_videos_length() {
-        let s = cleaned(script(vec![
-            clip("b", "5:00", "30:00", "long, length unknown"),
-            clip("a", "15:00", "40:00", "past the end of a 20 minute video"),
-            clip("a", "1:00", "30:00", "long"),
-        ]))
-        .unwrap();
-        let ends: Vec<(u64, u64)> = s.clips.iter().map(|c| (c.start, c.end)).collect();
-        assert_eq!(ends, [(300, 900), (900, 1200), (60, 660)]);
         assert_eq!(
-            (s.clips[0].to.as_str(), s.clips[1].to.as_str()),
-            ("15:00", "20:00")
+            ids(&s),
+            ["a", "b", "c"],
+            "later segments of channel 1 dropped"
+        );
+
+        let s = cleaned(script(vec![
+            segment("a", vec![part("Only.", "1:00", "1:10")]),
+            good("a2"),
+        ]))
+        .unwrap();
+        assert_eq!(
+            ids(&s),
+            ["a2"],
+            "an invalid segment doesn't use up its channel"
         );
     }
 
-    /// The moment `a` clip 5:00-7:00 of a 20 minute video gets from the agent's moment.
+    #[test]
+    fn script_drops_podcasts_unknown_and_unanalyzed_videos() {
+        let s = cleaned(script(vec![good("p"), good("zzz"), good(" "), good("b")])).unwrap();
+        assert_eq!(ids(&s), ["b"], "podcast, unknown and empty ids are dropped");
+        let unanalyzed = cleaned_over(script(vec![good("q")]), &[video("a", "1", false, None)]);
+        assert_eq!(unanalyzed, None, "q isn't among the week's analyzed videos");
+    }
+
+    /// The moment a part of `a` (20 minutes) at the given stretch gets, next to a valid part at
+    /// 2:00; None when it is dropped.
     fn moment_of(from: &str, to: &str) -> Option<(u64, u64)> {
-        let s = cleaned(script(vec![ClipDraft {
-            moment_from: from.into(),
-            moment_to: to.into(),
-            ..clip("a", "5:00", "7:00", "say")
-        }]))
-        .unwrap();
-        assert_eq!(s.clips.len(), 1, "the clip stays whatever the moment");
-        let c = &s.clips[0];
-        let present = [
-            c.moment_from.is_some(),
-            c.moment_to.is_some(),
-            c.moment_start.is_some(),
-            c.moment_end.is_some(),
-        ];
-        assert!(
-            present.iter().all(|p| *p == present[0]),
-            "all four fields or none"
+        let s = cleaned(script(vec![segment(
+            "a",
+            vec![part("Say.", from, to), part("Filler.", "2:00", "2:10")],
+        )]));
+        let found = s?
+            .segments
+            .remove(0)
+            .parts
+            .into_iter()
+            .find(|p| p.say == "Say.")?;
+        assert_eq!(
+            (found.moment_from.clone(), found.moment_to.clone()),
+            (
+                fmt_time(found.moment_start as f64),
+                fmt_time(found.moment_end as f64)
+            ),
+            "formatted strings match the seconds"
         );
-        c.moment_start.zip(c.moment_end)
+        Some((found.moment_start, found.moment_end))
     }
 
     #[test]
-    fn script_keeps_a_moment_inside_the_clip_and_formats_it() {
-        let s = cleaned(script(vec![ClipDraft {
-            moment_from: "[5:30]".into(),
-            moment_to: "5:42".into(),
-            ..clip("a", "5:00", "7:00", "say")
-        }]))
-        .unwrap();
-        let c = &s.clips[0];
-        assert_eq!((c.moment_start, c.moment_end), (Some(330), Some(342)));
+    fn script_keeps_moments_of_6_to_25_seconds() {
+        assert_eq!(moment_of("[5:30]", "5:42"), Some((330, 342)));
         assert_eq!(
-            (c.moment_from.as_deref(), c.moment_to.as_deref()),
-            (Some("05:30"), Some("05:42"))
+            moment_of("5:00", "5:06"),
+            Some((300, 306)),
+            "6 s is the least"
         );
-        assert_eq!(
-            moment_of("5:00", "5:04"),
-            Some((300, 304)),
-            "4 s at the start"
-        );
-        assert_eq!(
-            moment_of("6:40", "7:00"),
-            Some((400, 420)),
-            "ends at the clip's end"
-        );
-    }
-
-    #[test]
-    fn script_cuts_a_moment_at_the_clips_end_and_at_25_seconds() {
-        assert_eq!(
-            moment_of("6:50", "7:30"),
-            Some((410, 420)),
-            "runs past the end"
-        );
+        assert_eq!(moment_of("5:10", "5:35"), Some((310, 335)), "exactly 25 s");
         assert_eq!(
             moment_of("5:10", "6:10"),
             Some((310, 335)),
             "60 s is cut at 25"
         );
-        assert_eq!(moment_of("5:10", "5:35"), Some((310, 335)), "exactly 25 s");
+        assert_eq!(
+            moment_of("19:50", "20:30"),
+            Some((1190, 1200)),
+            "cut at the video's length"
+        );
     }
 
     #[test]
-    fn script_drops_a_moment_that_is_too_short_or_outside_but_keeps_the_clip() {
-        assert_eq!(moment_of("5:10", "5:13"), None, "3 s is too short");
-        assert_eq!(moment_of("6:57", "7:30"), None, "cut at the end it is 3 s");
-        assert_eq!(moment_of("4:50", "5:10"), None, "starts before the clip");
-        assert_eq!(moment_of("7:00", "7:20"), None, "starts at the clip's end");
-        assert_eq!(moment_of("8:00", "8:12"), None, "after the clip");
+    fn script_drops_parts_with_unusable_moments() {
+        assert_eq!(moment_of("5:00", "5:05"), None, "5 s is too short");
+        assert_eq!(
+            moment_of("19:57", "20:30"),
+            None,
+            "cut at the length it is 3 s"
+        );
+        assert_eq!(
+            moment_of("20:00", "20:20"),
+            None,
+            "starts at the video's end"
+        );
+        assert_eq!(moment_of("25:00", "25:20"), None, "after the video");
         assert_eq!(moment_of("6:00", "5:50"), None, "backwards");
         assert_eq!(moment_of("5:10", "soon"), None, "no usable end");
         assert_eq!(moment_of("", ""), None, "no moment given");
         assert_eq!(moment_of("5:10", ""), None, "half a moment");
+        assert_eq!(
+            cleaned(script(vec![segment(
+                "a",
+                vec![part(" ", "5:00", "5:10"), part("Fine.", "6:00", "6:10")]
+            )])),
+            None,
+            "a part without a line is dropped, leaving one"
+        );
     }
 
     #[test]
-    fn script_keeps_six_clips_and_clamps_texts() {
-        let clips = (0..10)
+    fn script_drops_overlapping_parts_keeping_the_earlier() {
+        let s = cleaned(script(vec![segment(
+            "a",
+            vec![
+                part("Late.", "8:00", "8:10"),
+                part("Second.", "5:10", "5:30"),
+                part("First.", "5:00", "5:20"),
+                part("Touching.", "5:30", "5:40"),
+            ],
+        )]))
+        .unwrap();
+        let parts: Vec<(&str, u64)> = s.segments[0]
+            .parts
+            .iter()
+            .map(|p| (p.say.as_str(), p.moment_start))
+            .collect();
+        assert_eq!(
+            parts,
+            [("First.", 300), ("Touching.", 330), ("Late.", 480)],
+            "Second overlaps First; one starting where another ends stays"
+        );
+    }
+
+    #[test]
+    fn script_drops_segments_with_fewer_than_two_parts() {
+        let s = cleaned(script(vec![
+            segment("a", vec![]),
+            segment("a", vec![part("Alone.", "1:00", "1:10")]),
+            segment(
+                "a",
+                vec![
+                    part("One.", "1:00", "1:10"),
+                    part("Overlaps.", "1:05", "1:20"),
+                ],
+            ),
+            segment(
+                "a",
+                vec![
+                    part("One.", "1:00", "1:10"),
+                    part("Too short.", "2:00", "2:03"),
+                ],
+            ),
+            good("b"),
+        ]))
+        .unwrap();
+        assert_eq!(ids(&s), ["b"]);
+    }
+
+    #[test]
+    fn script_keeps_at_most_four_parts_of_a_segment() {
+        let parts = (1..=6)
+            .rev()
             .map(|i| {
-                clip(
-                    "a",
+                part(
+                    &format!("Part {i}."),
                     &format!("{i}:00"),
-                    &format!("{i}:30"),
-                    &"s".repeat(400),
+                    &format!("{i}:10"),
                 )
             })
             .collect();
+        let s = cleaned(script(vec![segment("a", parts)])).unwrap();
+        let says: Vec<&str> = s.segments[0].parts.iter().map(|p| p.say.as_str()).collect();
+        assert_eq!(
+            says,
+            ["Part 1.", "Part 2.", "Part 3.", "Part 4."],
+            "the first four by time"
+        );
+        assert_eq!(MAX_PARTS, 4, "the request promises this");
+    }
+
+    #[test]
+    fn script_keeps_at_most_eight_segments() {
+        let week: Vec<Video> = (0..10)
+            .map(|i| video(&format!("v{i}"), &format!("ch{i}"), false, None))
+            .collect();
+        let segments = (0..10).map(|i| good(&format!("v{i}"))).collect();
+        let s = cleaned_over(script(segments), &week).unwrap();
+        assert_eq!(
+            ids(&s),
+            ["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7"],
+            "the first eight"
+        );
+        assert_eq!(MAX_SEGMENTS, 8, "the request promises this");
+    }
+
+    #[test]
+    fn script_clamps_texts() {
         let s = cleaned(ScriptDraft {
             intro: "i".repeat(500),
-            clips,
+            segments: vec![SegmentDraft {
+                intro: "n".repeat(500),
+                ..segment(
+                    "a",
+                    vec![
+                        part(&"s".repeat(400), "1:00", "1:10"),
+                        part("Two.", "2:00", "2:10"),
+                    ],
+                )
+            }],
             outro: "o".repeat(400),
         })
         .unwrap();
-        assert_eq!(s.clips.len(), 6, "the request asks for 3-6");
-        assert_eq!(s.clips[5].start, 300, "the first six, in order");
-        assert_eq!(s.clips[0].say.chars().count(), 140);
         assert_eq!(s.intro.chars().count(), 160);
+        assert_eq!(s.segments[0].intro.chars().count(), 200);
+        assert_eq!(s.segments[0].parts[0].say.chars().count(), 160);
         assert_eq!(s.outro.chars().count(), 120);
+        assert!(s.intro.ends_with('…'));
         assert_eq!(
-            (MAX_SAY, MAX_INTRO, MAX_OUTRO),
-            (140, 160, 120),
+            (MAX_INTRO, MAX_SEGMENT_INTRO, MAX_SAY, MAX_OUTRO),
+            (160, 200, 160, 120),
             "the request promises these"
         );
     }
 
     #[test]
-    fn script_needs_an_intro_and_a_surviving_clip() {
-        let good = || clip("a", "1:00", "2:00", "say");
+    fn script_needs_an_intro_and_a_surviving_segment() {
         let no_intro = ScriptDraft {
             intro: "  ".into(),
-            ..script(vec![good()])
+            ..script(vec![good("a")])
         };
-        assert_eq!(cleaned(no_intro), None);
+        assert_eq!(cleaned(no_intro), None, "no intro, no script");
         assert_eq!(cleaned(script(vec![])), None);
         assert_eq!(
-            cleaned(script(vec![
-                clip("p", "1:00", "2:00", "podcast"),
-                clip("a", "2:00", "1:00", "x")
-            ])),
-            None
+            cleaned(script(vec![good("p"), segment("a", vec![])])),
+            None,
+            "no segment survives"
         );
+        let no_segment_intro = cleaned(script(vec![SegmentDraft {
+            intro: " ".into(),
+            ..good("a")
+        }]));
+        assert_eq!(no_segment_intro, None, "a segment needs its takeaway");
         let no_outro = cleaned(ScriptDraft {
             outro: String::new(),
-            ..script(vec![good()])
+            ..script(vec![good("a")])
         })
         .unwrap();
         assert_eq!(no_outro.outro, "");
@@ -682,43 +847,56 @@ mod tests {
         let ask = request(&conn).unwrap();
         assert!(ask.contains("`script`") && ask.contains("Length: 10:00"));
         assert!(
-            ask.contains("`moment_from`/`moment_to`")
-                && ask.contains("8-15 seconds")
-                && ask.contains("3-6 `clips`")
-                && ask.contains("120 characters")
+            ask.contains("`segments`")
+                && ask.contains("`parts`")
+                && ask.contains("6-25 seconds")
+                && ask.contains("3-4 `parts`")
+                && ask.contains("160 characters")
+                && ask.contains("200 characters")
+                && !ask.contains("clip")
         );
         let mut args = draft(&["a"]);
         args["script"] = serde_json::json!({
             "intro": "Two videos.",
-            "clips": [
-                { "video_id": "a", "from": "8:00", "to": "12:00", "say": "Start here.",
-                  "moment_from": "8:30", "moment_to": "8:42" },
-                { "video_id": "b", "from": "1:00", "to": "3:00", "say": "Bad moment.",
-                  "moment_from": "9:00", "moment_to": "9:12" },
-                { "video_id": "q", "from": "1:00", "to": "2:00", "say": "Not analyzed." },
+            "segments": [
+                { "video_id": "a", "intro": "One on evals.", "parts": [
+                    { "say": "He starts here.", "moment_from": "8:30", "moment_to": "8:42" },
+                    { "say": "Then this.", "moment_from": "1:00", "moment_to": "1:20" },
+                    { "say": "Past the end.", "moment_from": "11:00", "moment_to": "11:20" } ] },
+                { "video_id": "b", "intro": "Same channel.", "parts": [
+                    { "say": "One.", "moment_from": "1:00", "moment_to": "1:10" },
+                    { "say": "Two.", "moment_from": "2:00", "moment_to": "2:10" } ] },
+                { "video_id": "q", "intro": "Not analyzed.", "parts": [
+                    { "say": "One.", "moment_from": "1:00", "moment_to": "1:10" },
+                    { "say": "Two.", "moment_from": "2:00", "moment_to": "2:10" } ] },
             ],
         });
         let d = save(&conn, &args).unwrap();
         let s = d.script.as_ref().unwrap();
-        assert_eq!(s.clips.len(), 2);
-        assert_eq!((s.clips[0].to.as_str(), s.clips[0].end), ("10:00", 600));
+        assert_eq!(ids(s), ["a"], "b shares a's channel, q isn't analyzed");
         assert_eq!(
-            s.clips[1].moment_start, None,
-            "outside the clip: moment dropped"
+            s.segments[0].parts.len(),
+            2,
+            "the part past the video's end is dropped"
         );
         assert_eq!(stored(&conn).unwrap(), Some(d));
         let json = serde_json::to_value(stored(&conn).unwrap().unwrap()).unwrap();
-        let clips = &json["script"]["clips"];
-        assert_eq!(clips[0]["start"], 480);
+        let parts = &json["script"]["segments"][0]["parts"];
         assert_eq!(
             (
-                clips[0]["moment_start"].clone(),
-                clips[0]["moment_end"].clone()
+                parts[0]["moment_start"].clone(),
+                parts[0]["moment_end"].clone()
             ),
-            (510.into(), 522.into())
+            (60.into(), 80.into()),
+            "sorted by time"
         );
-        assert_eq!(clips[0]["moment_from"], "08:30");
-        assert!(clips[1].get("moment_start").is_none() && clips[1].get("moment_to").is_none());
+        assert_eq!(
+            (
+                parts[1]["moment_from"].clone(),
+                parts[1]["moment_to"].clone()
+            ),
+            ("08:30".into(), "08:42".into())
+        );
         assert_eq!(json["script"]["outro"], "");
 
         let none = save(&conn, &draft(&["a"])).unwrap();

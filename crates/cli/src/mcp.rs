@@ -39,13 +39,13 @@ const CARDS_HTML: &str = include_str!("videos.html");
 fn tools() -> Value {
     let video_id = json!({ "type": "string", "description": "Video or episode id from check_new_videos, recent_videos or feed" });
     let stamp = json!({ "type": "string", "description": "Timestamp mm:ss or h:mm:ss from the transcript" });
-    let clip = json!({ "type": "object", "required": ["video_id", "from", "to", "say"], "properties": {
+    let segment = json!({ "type": "object", "required": ["video_id", "intro", "parts"], "properties": {
         "video_id": { "type": "string", "description": "An analyzed YouTube video of the week (not a podcast episode)" },
-        "say": { "type": "string", "description": "One punchy sentence, 120 characters at most (140 is the cut): why this clip matters to this user. No hype, no invented facts, in the profile's language" },
-        "moment_from": { "type": "string", "description": "mm:ss or h:mm:ss where the key point starts, inside from..to, taken from the analyses' takeaway timestamps. The clip plays moment_from..moment_to at normal speed with sound" },
-        "moment_to": { "type": "string", "description": "mm:ss or h:mm:ss where the key point ends; 8-15 seconds after moment_from (4 at least, 25 at most). An invalid moment is dropped, the clip stays" },
-        "from": { "type": "string", "description": "mm:ss or h:mm:ss where the surrounding stretch starts; it plays fast and muted behind the line" },
-        "to": { "type": "string", "description": "mm:ss or h:mm:ss where it ends; 1-6 minutes after from, 10 at most" } } });
+        "intro": { "type": "string", "description": "The narrator's takeaway for this video, third person, 200 characters at most: what the creator says and why it matters to this user. E.g. \"Theo on this week's security leaks: he argues the real story is stolen API keys, and why that matters for you.\" No hype, no invented facts, in the profile's language" },
+        "parts": { "type": "array", "minItems": 3, "maxItems": 4, "description": "3-4 parts of this video, taken from the analyses' takeaway timestamps; they must not overlap and are played in time order. Fewer than 2 valid parts drops the segment", "items": { "type": "object", "required": ["say", "moment_from", "moment_to"], "properties": {
+            "say": { "type": "string", "description": "The narrator line that sets the part up, third person, 160 characters at most (it is the cut), ending by pointing at the part: \"He then shows how … — watch the next bit.\"" },
+            "moment_from": { "type": "string", "description": "mm:ss or h:mm:ss in the video where the part starts" },
+            "moment_to": { "type": "string", "description": "mm:ss or h:mm:ss where it ends; 6-25 seconds after moment_from (longer is cut at 25, shorter dropped)" } } } } } });
     json!([
         { "name": "status", "description": "Where the user stands with tx (profile, what they follow, what's waiting, daily brief) and the next step to guide them to, with things they could say. Call it at the start of a conversation about tx and whenever the user seems unsure what to do.",
           "inputSchema": { "type": "object", "properties": {} } },
@@ -117,7 +117,7 @@ fn tools() -> Value {
           "_meta": { "ui": { "resourceUri": CARDS_URI }, "openai/ui": { "preferredModelDisplayMode": "fullscreen" } } },
         { "name": "write_digest", "description": "Write a markdown digest of everything analyzed since the last digest, and notify the user if something is worth their time. When the last 7 days' analyzed videos changed since the last debrief, the reply asks you to write one with save_debrief.",
           "inputSchema": { "type": "object", "properties": {} } },
-        { "name": "save_debrief", "description": "Store your debrief across the last 7 days' analyzed videos: what they add up to for this user, what to watch first, and the themes that run through two or more of them, plus a script for a reel of about a minute over the week's best YouTube moments (a short intro, then per clip a punchy line, the 8-15 second moment where the key point is said and the stretch around it, then a short outro). Call it when write_digest asks for it. It shows on top of the user's brief; the reel plays from its Watch your debrief button.",
+        { "name": "save_debrief", "description": "Store your debrief across the last 7 days' analyzed videos: what they add up to for this user, what to watch first, and the themes that run through two or more of them, plus a script for a narrated video over the week's best YouTube videos (an intro, then one segment per channel: the narrator's takeaway for the video and 3-4 parts, each a narrator line that sets the part up and the 6-25 second moment where it is said, then a short outro). Call it when write_digest asks for it. It shows on top of the user's brief; the narrated video plays from its Watch your debrief button.",
           "inputSchema": { "type": "object", "required": ["headline", "summary"], "properties": {
             "headline": { "type": "string", "description": "One sentence, 200 characters at most" },
             "summary": { "type": "string", "description": "2-4 sentences, 800 characters at most: what the week adds up to for this user and what to watch first" },
@@ -125,9 +125,9 @@ fn tools() -> Value {
                 "title": { "type": "string", "description": "A few words" },
                 "text": { "type": "string", "description": "1-2 sentences" },
                 "video_ids": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Ids from the analyses write_digest listed" } } } },
-            "script": { "type": "object", "required": ["intro", "clips"], "description": "A reel of about a minute for this user: per clip the stretch plays muted and fast behind the line, then the key moment plays with sound. Best clip first. Invalid clips are dropped.", "properties": {
-                "intro": { "type": "string", "description": "One short sentence framing the week, 160 characters at most" },
-                "clips": { "type": "array", "minItems": 3, "maxItems": 6, "items": clip },
+            "script": { "type": "object", "required": ["intro", "segments"], "description": "A narrated video over the week for this user: one chapter per channel. Each chapter opens with the narrator's takeaway, then 3-4 parts: the narrator's line shows as captions while the video runs fast in the background, then the part plays at normal speed with sound. Best segment first. Invalid segments and parts are dropped.", "properties": {
+                "intro": { "type": "string", "description": "One sentence framing the week, 160 characters at most" },
+                "segments": { "type": "array", "minItems": 1, "maxItems": 8, "description": "One per channel, best first; a later segment of a channel already used is dropped", "items": segment },
                 "outro": { "type": "string", "description": "One short closing line, 120 characters at most" } } } } } }
     ])
 }
@@ -451,11 +451,11 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
         "save_debrief" => {
             let d = debrief::save(&db.lock().unwrap(), args)?;
             format!(
-                "Saved: \"{}\", {} threads over {} videos, {} clips. Next, if you're talking with the user, show_videos without ids.",
+                "Saved: \"{}\", {} threads over {} videos, {} segments. Next, if you're talking with the user, show_videos without ids.",
                 d.headline,
                 d.threads.len(),
                 d.video_ids.len(),
-                d.script.as_ref().map_or(0, |s| s.clips.len())
+                d.script.as_ref().map_or(0, |s| s.segments.len())
             )
         }
         other => bail!("unknown tool {other}"),

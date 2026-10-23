@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ExpandButton, ExtLink, GROUPS, Thumb, kindColor, kindOf, type Kind } from "@/components/bits"
 import { Landing } from "@/components/landing"
-import { Show, reelSeconds, showOf } from "@/components/show"
+import { MAX_CHANNELS, Show, showOf, showSeconds } from "@/components/show"
 import { cn } from "@/lib/utils"
 import { released, secs, type Locale } from "@/lib/format"
 import { sendMessage, useHost } from "@/host"
@@ -29,6 +29,20 @@ export function Brief({ data }: { data: BriefData }) {
   const scroller = useRef<HTMLDivElement>(null)
   const landingTop = useRef(0)
   const show = useMemo(() => showOf(data), [data])
+  // Which channels the debrief covers: the first MAX_CHANNELS chapters until the user changes it.
+  const [picked, setPicked] = useState<{ in: typeof show; ids: ReadonlySet<string> } | null>(null)
+  const chosen = useMemo(
+    () => (picked?.in === show ? picked.ids : new Set(show?.chapters.slice(0, MAX_CHANNELS).map((c) => c.video.id) ?? [])),
+    [picked, show]
+  )
+  const watching = useMemo(() => (show ? { ...show, chapters: show.chapters.filter((c) => chosen.has(c.video.id)) } : null), [show, chosen])
+  const toggle = (id: string) => {
+    const ids = new Set(chosen)
+    if (ids.has(id)) {
+      if (ids.size > 1) ids.delete(id)
+    } else if (ids.size < MAX_CHANNELS) ids.add(id)
+    setPicked({ in: show, ids })
+  }
 
   const go = (w: Open | null) => {
     if (w && !what) landingTop.current = scroller.current?.scrollTop ?? 0
@@ -48,8 +62,8 @@ export function Brief({ data }: { data: BriefData }) {
   const video = single ? videos[0] : what?.kind === "video" ? videos.find((v) => v.id === what.id) : undefined
   return (
     <div ref={scroller} className="thin @container min-h-0 flex-1 overflow-y-auto rounded-xl border bg-card">
-      {what?.kind === "show" && show ? (
-        <Show show={show} loc={loc} onClose={() => go(null)} />
+      {what?.kind === "show" && watching?.chapters.length ? (
+        <Show show={watching} loc={loc} onClose={() => go(null)} />
       ) : video ? (
         <div className="mx-auto max-w-[860px] px-4 pt-3 pb-8 @min-[900px]:px-6">
           <div className="mb-4 flex items-center justify-between gap-3">
@@ -71,7 +85,17 @@ export function Brief({ data }: { data: BriefData }) {
           loc={loc}
           actions={<ExpandButton />}
           open={(id) => go({ kind: "video", id })}
-          watch={show ? { seconds: reelSeconds(show), videos: show.clips.length, start: () => go({ kind: "show" }) } : undefined}
+          watch={
+            show && watching
+              ? {
+                  seconds: showSeconds(watching),
+                  channels: show.chapters.map((c) => ({ id: c.video.id, name: c.video.channel, chosen: chosen.has(c.video.id) })),
+                  max: MAX_CHANNELS,
+                  toggle,
+                  start: () => go({ kind: "show" }),
+                }
+              : undefined
+          }
         />
       )}
     </div>

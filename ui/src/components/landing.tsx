@@ -34,8 +34,8 @@ export interface LandingProps {
   /** Header controls (full screen). */
   actions: ReactNode
   open: (id: string) => void
-  /** The reel over the picks, when there's anything to play. */
-  watch?: { seconds: number; videos: number; start: () => void }
+  /** The narrated debrief over the chosen channels (up to `max`), when there's anything to play. */
+  watch?: { seconds: number; channels: { id: string; name: string; chosen: boolean }[]; max: number; toggle: (id: string) => void; start: () => void }
 }
 
 /**
@@ -64,14 +64,38 @@ export function Landing({ data, loc, actions, open, watch }: LandingProps) {
       <section aria-labelledby="cut" className="col-span-full mt-5 mb-8 @min-[900px]:mt-7 @min-[900px]:mb-11">
         <Reel videos={videos} days={data.days} loc={loc} open={open} />
         {watch && (
-          <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <Button onClick={watch.start}>
-              <PlayIcon data-icon="inline-start" />
-              Watch your debrief
-            </Button>
-            <span className="text-[12.5px] text-muted-foreground tabular-nums">
-              {watch.seconds < 60 ? `${Math.round(watch.seconds)} s` : `${Math.floor(watch.seconds / 60)} min ${Math.round(watch.seconds % 60)} s`} · {plural(watch.videos, "video")}
-            </span>
+          <div className="mt-5 grid gap-2.5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <Button onClick={watch.start}>
+                <PlayIcon data-icon="inline-start" />
+                Watch your debrief
+              </Button>
+              <span className="text-[12.5px] text-muted-foreground tabular-nums">
+                {watch.seconds < 60 ? `${Math.round(watch.seconds)} s` : `${Math.floor(watch.seconds / 60)} min ${Math.round(watch.seconds % 60)} s`} ·{" "}
+                {plural(watch.channels.filter((c) => c.chosen).length, "channel")}, narrated
+              </span>
+            </div>
+            {watch.channels.length > 1 && (
+              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={`Channels in your debrief, up to ${watch.max}`}>
+                <span className="mr-1 text-[12.5px] text-faint">Channels, up to {watch.max}:</span>
+                {watch.channels.map((c) => {
+                  const full = !c.chosen && watch.channels.filter((x) => x.chosen).length >= watch.max
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      aria-pressed={c.chosen}
+                      disabled={full}
+                      title={full ? `Up to ${watch.max} channels: take one out first` : undefined}
+                      onClick={() => watch.toggle(c.id)}
+                      className="h-7 cursor-pointer rounded-full px-3 text-[12.5px] font-medium text-muted-foreground ring-1 ring-foreground/15 hover:ring-foreground/30 disabled:cursor-not-allowed disabled:opacity-40 aria-pressed:bg-foreground aria-pressed:text-card aria-pressed:ring-foreground"
+                    >
+                      {c.name}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
       </section>
