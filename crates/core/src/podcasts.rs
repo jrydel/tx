@@ -315,6 +315,7 @@ pub async fn search(query: &str) -> Result<Vec<Value>> {
                 "feed_url": r["feedUrl"].as_str()?,
                 "episodes": r["trackCount"],
                 "genre": r["primaryGenreName"],
+                "artwork": r["artworkUrl100"],
             }))
         })
         .collect())

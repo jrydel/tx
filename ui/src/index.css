@@ -1,0 +1,124 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * The host paints this view: its theme variables (--color-*, --font-*, --border-radius-*) are set on <html>
+ * at runtime and mapped here onto shadcn's tokens. The fallbacks (from the previous hand-written view) apply when a host sends none.
+ *   --card = the panel, --muted = the sunk wells and hovers, --foreground/--muted-foreground/--faint = text tiers.
+ */
+/* Not inline: utilities must read var(--font-sans) at runtime, so the host's fonts (set on <html>) win over these fallbacks. */
+@theme {
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-faint: var(--faint);
+  --color-watch: var(--watch);
+  --color-skim: var(--skim);
+  --color-skip: var(--skip);
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.67);
+  --radius-lg: calc(var(--radius) * 0.84);
+  --radius-xl: var(--radius);
+  --radius-2xl: calc(var(--radius) * 1.4);
+  --radius-4xl: 999px;
+}
+
+:root {
+  color-scheme: light;
+  --foreground: var(--color-text-primary, #18181b);
+  --muted-foreground: var(--color-text-secondary, #55555f);
+  --faint: var(--color-text-tertiary, #8a8a94);
+  --card: var(--color-background-secondary, #f7f7f8);
+  --muted: var(--color-background-tertiary, #ececef);
+  --border: var(--color-border-secondary, #e2e2e6);
+  --popover: var(--color-background-primary, #ffffff);
+  --destructive: #b91c1c;
+  --watch: #15803d;
+  --skim: #b45309;
+  --skip: #6b7280;
+  --background: var(--color-background-primary, #ffffff);
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --primary: var(--foreground);
+  --primary-foreground: var(--card);
+  --secondary: var(--muted);
+  --secondary-foreground: var(--foreground);
+  --accent: var(--muted);
+  --accent-foreground: var(--foreground);
+  --input: var(--border);
+  --ring: var(--foreground);
+  --radius: var(--border-radius-lg, 12px);
+  /* The height the host offers; the host sets it from containerDimensions. */
+  --app-h: 720px;
+}
+
+/* Dark is a class (host theme, else the OS setting), not light-dark(): the build's CSS transpiler turns light-dark() into media queries, which would ignore the host's theme. */
+.dark {
+  color-scheme: dark;
+  --foreground: var(--color-text-primary, #f4f4f5);
+  --muted-foreground: var(--color-text-secondary, #a1a1aa);
+  --faint: var(--color-text-tertiary, #71717a);
+  --card: var(--color-background-secondary, #1e1e22);
+  --muted: var(--color-background-tertiary, #29292e);
+  --border: var(--color-border-secondary, #313137);
+  --background: var(--color-background-primary, #18181b);
+  --popover: var(--color-background-primary, #26262b);
+  --destructive: #f87171;
+  --watch: #4ade80;
+  --skim: #fbbf24;
+  --skip: #8b8b96;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    background: transparent;
+  }
+  body {
+    @apply m-0 overflow-hidden bg-transparent text-sm leading-normal text-foreground;
+  }
+  /* Keyboard focus for our own controls; shadcn's inputs and buttons draw their own ring. */
+  :where(a, button, [role="option"]):focus-visible:not([data-slot]) {
+    outline: 2px solid var(--foreground);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  [hidden] {
+    display: none !important;
+  }
+  .thin {
+    scrollbar-width: thin;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      transition: none !important;
+      animation: none !important;
+    }
+  }
+}

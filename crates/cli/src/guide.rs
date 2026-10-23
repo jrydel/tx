@@ -90,18 +90,7 @@ pub fn set_daily_brief(db: &Db, args: &Value, client: &str) -> Result<String> {
         schedule::uninstall()?;
         return Ok("The daily brief is off.".into());
     }
-    let client = client.to_ascii_lowercase();
-    let preferred = if client.contains("codex") {
-        Some(Agent::Codex)
-    } else if client.contains("claude") {
-        Some(Agent::Claude)
-    } else {
-        None
-    };
-    let Some(agent) = preferred
-        .filter(|a| a.find().is_some())
-        .or_else(|| Agent::detect().ok())
-    else {
+    let Some(agent) = agent_for(client) else {
         bail!(
             "the daily brief runs Claude Code or Codex in the background, and neither is installed. \
              Tell the user: install either one (signed in with their subscription), then ask again."
@@ -223,4 +212,246 @@ pub fn prompt(name: &str, args: &Value) -> Result<Value> {
         other => bail!("unknown prompt {other}"),
     };
     Ok(json!({ "messages": [{ "role": "user", "content": { "type": "text", "text": text } }] }))
+}
+
+/// The agent to run in the background for the app the user is talking to: Codex from Codex,
+/// Claude Code from Claude apps, else whichever is installed.
+pub fn agent_for(client: &str) -> Option<Agent> {
+    let client = client.to_ascii_lowercase();
+    let preferred = if client.contains("codex") {
+        Some(Agent::Codex)
+    } else if client.contains("claude") {
+        Some(Agent::Claude)
+    } else {
+        None
+    };
+    preferred
+        .filter(|a| a.find().is_some())
+        .or_else(|| Agent::detect().ok())
+}
+
+/// YouTube channels and podcasts matching what the user types, for the setup panel's search:
+/// what tx already knows first (instant), then YouTube's channel search and Apple's podcasts.
+pub async fn search_sources(db: &Db, query: &str) -> Result<Value> {
+    let q = query.trim();
+    if q.is_empty() {
+        bail!("type a channel or podcast name");
+    }
+    let channels = db::channels(&db.lock().unwrap())?;
+    let watching = |id: &str| channels.iter().any(|c| c.id == id && c.enabled);
+    let lower = q.to_lowercase();
+    let mut results: Vec<Value> = channels
+        .iter()
+        .filter(|c| c.title.to_lowercase().contains(&lower))
+        .take(4)
+        .map(|c| {
+            json!({ "kind": if c.podcast { "podcast" } else { "youtube" }, "ref": c.id, "title": c.title,
+                    "subtitle": if c.enabled { "Following" } else { "In your subscriptions" },
+                    "thumbnail": c.image, "watching": c.enabled })
+        })
+        .collect();
+    // A pasted link or @handle is followed as it is.
+    if q.starts_with('@') || q.contains("://") {
+        results.push(json!({ "kind": if q.contains("youtu") || q.starts_with('@') { "youtube" } else { "podcast" },
+                             "ref": q, "title": q, "subtitle": "Follow this link", "thumbnail": null, "watching": false }));
+        return Ok(json!({ "results": results }));
+    }
+    let url = format!(
+        "https://www.youtube.com/results?search_query={}&sp=EgIQAg%3D%3D",
+        q.split_whitespace().collect::<Vec<_>>().join("+")
+    );
+    let youtube = tx_core::ytdlp::json(vec![
+        "--flat-playlist".into(),
+        "-J".into(),
+        "--playlist-items".into(),
+        "1:5".into(),
+        url.into(),
+    ]);
+    let (youtube, shows) = tokio::join!(youtube, tx_core::podcasts::search(q));
+    let known: Vec<String> = results
+        .iter()
+        .filter_map(|r| r["ref"].as_str().map(String::from))
+        .collect();
+    for e in youtube
+        .ok()
+        .and_then(|d| d["entries"].as_array().cloned())
+        .unwrap_or_default()
+    {
+        let Some(id) = e["channel_id"]
+            .as_str()
+            .or(e["id"].as_str())
+            .filter(|id| id.starts_with("UC"))
+        else {
+            continue;
+        };
+        if known.iter().any(|k| k == id) {
+            continue;
+        }
+        let followers = e["channel_follower_count"].as_f64().map(|n| match n {
+            n if n >= 1e6 => format!("{:.1}M subscribers", n / 1e6),
+            n if n >= 1e3 => format!("{:.0}K subscribers", n / 1e3),
+            n => format!("{n:.0} subscribers"),
+        });
+        let handle = e["uploader_id"].as_str().filter(|h| h.starts_with('@'));
+        // Avatars come as protocol-relative 88 px URLs; ask for a sharper size.
+        let thumbnail = e["thumbnails"][0]["url"].as_str().map(|u| {
+            format!("https:{}", u.trim_start_matches("https:")).replace("=s88-", "=s176-")
+        });
+        let subtitle: Vec<String> = [handle.map(String::from), followers]
+            .into_iter()
+            .flatten()
+            .collect();
+        let title = e["title"].as_str().or(e["channel"].as_str()).unwrap_or(id);
+        results.push(
+            json!({ "kind": "youtube", "ref": id, "title": title, "subtitle": subtitle.join(" · "),
+                             "thumbnail": thumbnail, "watching": watching(id) }),
+        );
+    }
+    for s in shows.unwrap_or_default().into_iter().take(4) {
+        let Some(feed) = s["feed_url"].as_str() else {
+            continue;
+        };
+        let id = tx_core::podcasts::channel_id(feed);
+        if known.contains(&id) {
+            continue;
+        }
+        results.push(
+            json!({ "kind": "podcast", "ref": feed, "title": s["title"], "subtitle": s["author"],
+                             "thumbnail": s["artwork"], "watching": watching(&id) }),
+        );
+    }
+    Ok(json!({ "results": results }))
+}
+
+/// Ask the user's own agent which channels fit their profile: (id, short reason) pairs.
+pub fn suggest(
+    agent: Agent,
+    profile: &str,
+    channels: &[db::Channel],
+) -> Result<Vec<(String, String)>> {
+    use anyhow::Context;
+    use std::process::{Command, Stdio};
+    let list: String = channels
+        .iter()
+        .map(|c| {
+            format!(
+                "{} | {} | {}\n",
+                c.id,
+                c.title,
+                if c.podcast { "podcast" } else { "YouTube" }
+            )
+        })
+        .collect();
+    let prompt = format!(
+        "A person describes what they want to learn. Below are the YouTube channels and podcasts they subscribe to. \
+         Pick the ones whose new uploads fit that, usually 5 to 20. Reply with only lines like `<id> | <why, under 10 words>`, \
+         nothing else.\n\nPerson: {profile}\n\nChannels (id | title | kind):\n{list}"
+    );
+    let program = agent.find().context("agent not installed")?;
+    let text = match agent {
+        Agent::Claude => {
+            let out = Command::new(program)
+                .args(["-p", &prompt])
+                .stdin(Stdio::null())
+                .output()?;
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        }
+        Agent::Codex => {
+            let answer = tempfile::NamedTempFile::new()?;
+            Command::new(program)
+                .args([
+                    "exec",
+                    "--skip-git-repo-check",
+                    "--sandbox",
+                    "read-only",
+                    "-o",
+                ])
+                .arg(answer.path())
+                .arg(&prompt)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()?;
+            std::fs::read_to_string(answer.path())?
+        }
+    };
+    let picks: Vec<(String, String)> = text
+        .lines()
+        .filter_map(|l| {
+            // `id | why`, though agents sometimes echo the title in between: the reason is the last part.
+            let (id, rest) = l.trim().trim_matches('`').split_once('|')?;
+            let id = id.trim();
+            let why = rest.rsplit('|').next().unwrap_or(rest).trim();
+            channels
+                .iter()
+                .any(|c| c.id == id)
+                .then(|| (id.to_string(), why.to_string()))
+        })
+        .collect();
+    if picks.is_empty() {
+        bail!("no usable answer");
+    }
+    Ok(picks)
+}
+
+/// The setup panel's "Let your AI pick": the user's agent picks from everything tx knows.
+pub async fn suggest_channels(db: &Db, client: &str) -> Result<Value> {
+    let (profile, channels) = {
+        let conn = db.lock().unwrap();
+        (db::get_settings(&conn)?.profile, db::channels(&conn)?)
+    };
+    if profile.trim().is_empty() {
+        bail!("save what you want to learn first; the picks are for that");
+    }
+    if channels.is_empty() {
+        bail!("import your subscriptions first, then your AI picks from them");
+    }
+    let Some(agent) = agent_for(client) else {
+        bail!("picking needs Claude Code or Codex installed");
+    };
+    let picks = tokio::task::spawn_blocking(move || suggest(agent, &profile, &channels)).await??;
+    Ok(
+        json!({ "picks": picks.iter().map(|(id, why)| json!({ "id": id, "why": why })).collect::<Vec<_>>() }),
+    )
+}
+
+/// The background screening started from the setup panel, so a second click doesn't start another.
+static SCREENING: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mutex::new(None);
+
+/// "Show my first brief": check for new uploads, and if any are waiting, have the user's agent
+/// analyze them in the background (`tx run`), the way the daily brief does. The panel polls
+/// `status` and shows the brief when nothing is left waiting.
+pub async fn screen_now(db: &Db, client: &str) -> Result<Value> {
+    if let Err(e) = tx_core::feeds::poll(db).await {
+        eprintln!("tx: checking for new uploads failed: {e:#}");
+    }
+    let waiting = db::pending(&db.lock().unwrap())?.len();
+    let mut running = SCREENING.lock().unwrap();
+    if let Some(child) = running.as_mut()
+        && child.try_wait()?.is_none()
+    {
+        return Ok(
+            json!({ "started": true, "waiting": waiting, "agent": null, "reason": "already screening" }),
+        );
+    }
+    if waiting == 0 {
+        return Ok(
+            json!({ "started": false, "waiting": 0, "agent": null, "reason": "nothing new to screen" }),
+        );
+    }
+    let Some(agent) = agent_for(client) else {
+        return Ok(json!({ "started": false, "waiting": waiting, "agent": null,
+                          "reason": "screening needs Claude Code or Codex installed" }));
+    };
+    let data = tx_core::paths::data_dir();
+    let log = std::fs::File::create(data.join("screening.log"))?;
+    let child = std::process::Command::new(std::env::current_exe()?)
+        .args(["run", "--agent", agent.program()])
+        .env("TX_DATA_DIR", &data)
+        .stdin(std::process::Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log)
+        .spawn()?;
+    *running = Some(child);
+    Ok(json!({ "started": true, "waiting": waiting, "agent": agent.program() }))
 }

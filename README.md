@@ -178,6 +178,8 @@ git clone https://github.com/jrydel/tx && cd tx && cargo build --release -p tx-c
 
 Run the tests with `cargo test --workspace`.
 
+The brief and the setup panel are a React + shadcn/ui app in `ui/`, built into one file that the binary embeds (`crates/cli/src/videos.html`, committed, so `cargo build` doesn't need it). After changing the view: `cd ui && bun install && bun run build`.
+
 Layout: `crates/core` is the engine, `crates/cli` the `tx` command and MCP server, `plugin/` the Claude Code plugin and skill. Releases are built by `.github/workflows/release.yml` when a `v*` tag is pushed.
 
 ## License

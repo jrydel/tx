@@ -8,7 +8,6 @@ use anyhow::{Context, Result, bail};
 use dialoguer::console::{Style, measure_text_width, style};
 use dialoguer::{Confirm, Input, MultiSelect, Select, theme::ColorfulTheme};
 use std::io::IsTerminal;
-use std::process::{Command, Stdio};
 use tx_core::db::{self, Db};
 use tx_core::{feeds, podcasts};
 
@@ -533,7 +532,7 @@ async fn pick(theme: &ColorfulTheme, db: &Db) -> Result<()> {
             .interact()?
     {
         note(&format!("Asking {}…", agent.program()));
-        match suggest(agent, &profile, &channels) {
+        match crate::guide::suggest(agent, &profile, &channels) {
             Ok(p) => {
                 println!(
                     "  {} {} picked {} for you, marked ●. Change anything.",
@@ -588,69 +587,6 @@ async fn pick(theme: &ColorfulTheme, db: &Db) -> Result<()> {
     }
     println!("  {} Following {followed}.", style("✓").green());
     Ok(())
-}
-
-/// Ask the user's own agent which channels fit their profile: (id, short reason) pairs.
-fn suggest(agent: Agent, profile: &str, channels: &[db::Channel]) -> Result<Vec<(String, String)>> {
-    let list: String = channels
-        .iter()
-        .map(|c| {
-            format!(
-                "{} | {} | {}\n",
-                c.id,
-                c.title,
-                if c.podcast { "podcast" } else { "YouTube" }
-            )
-        })
-        .collect();
-    let prompt = format!(
-        "A person describes what they want to learn. Below are the YouTube channels and podcasts they subscribe to. \
-         Pick the ones whose new uploads fit that, usually 5 to 20. Reply with only lines like `<id> | <why, under 10 words>`, \
-         nothing else.\n\nPerson: {profile}\n\nChannels (id | title | kind):\n{list}"
-    );
-    let program = agent.find().context("agent not installed")?;
-    let text = match agent {
-        Agent::Claude => {
-            let out = Command::new(program)
-                .args(["-p", &prompt])
-                .stdin(Stdio::null())
-                .output()?;
-            String::from_utf8_lossy(&out.stdout).into_owned()
-        }
-        Agent::Codex => {
-            let answer = tempfile::NamedTempFile::new()?;
-            Command::new(program)
-                .args([
-                    "exec",
-                    "--skip-git-repo-check",
-                    "--sandbox",
-                    "read-only",
-                    "-o",
-                ])
-                .arg(answer.path())
-                .arg(&prompt)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()?;
-            std::fs::read_to_string(answer.path())?
-        }
-    };
-    let picks: Vec<(String, String)> = text
-        .lines()
-        .filter_map(|l| {
-            let (id, why) = l.trim().trim_matches('`').split_once('|')?;
-            let id = id.trim();
-            channels
-                .iter()
-                .any(|c| c.id == id)
-                .then(|| (id.to_string(), why.trim().to_string()))
-        })
-        .collect();
-    if picks.is_empty() {
-        bail!("no usable answer");
-    }
-    Ok(picks)
 }
 
 /// Offer the daily brief; returns the time it runs at, if on.
