@@ -33,8 +33,13 @@ export interface ShowScript {
 export const MAX_CHANNELS = 5
 /** A key part made from a takeaway: this long from its timestamp. */
 const PART = 12
-/** Under the narrator the video runs this fast, muted. */
-const FAST = 3
+/** Under the narrator the montage's cuts run this fast, muted. */
+const FAST = 2
+/** About how long each cut of the montage is on screen. */
+const CUT_MS = 1600
+/** Sound fades in this long when a part starts, and out this long when it ends. */
+const FADE_IN = 500
+const FADE_OUT = 250
 
 const firstSentence = (t: string) => t.split(/(?<=[.!?])\s/)[0]!.trim()
 const clip = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t)
@@ -88,30 +93,44 @@ export function showOf(data: BriefData): ShowScript | null {
 const readMs = (text: string) => Math.min(12000, Math.max(3000, (text.split(/\s+/).length / 2.7) * 1000 + 500))
 
 type Step =
-  | { kind: "say"; ch: number; text: string; label: string; video: Card; from: number }
+  | { kind: "say"; ch: number; text: string; label: string; video: Card; cuts: number[] }
   | { kind: "part"; ch: number; part: number; video: Card; moment: [number, number] }
 
 /**
- * The running order. Each line runs over its video, fast, from far enough back to arrive at the next part as the line
- * ends, so the part just carries on at normal speed. A chapter's takeaway leads into its first line the same way.
+ * Where a line's montage cuts start: 2-5 scenes (one per CUT_MS of the line), spread from `lo`, the last one running
+ * straight into `end`. Scenes stay apart enough not to repeat each other.
+ */
+function cutsFor(ms: number, lo: number, end: number): number[] {
+  const n = Math.min(5, Math.max(2, Math.round(ms / CUT_MS)))
+  const source = (ms / n / 1000) * FAST
+  const last = Math.max(0, end - source)
+  const gap = Math.max(source * 1.6, (last - lo) / (n - 1))
+  return Array.from({ length: n }, (_, i) => Math.max(0, last - gap * (n - 1 - i)))
+}
+
+/**
+ * The running order. Under each line, a montage of quick cuts from the video; the last cut of a part's line runs into
+ * the part, which then plays as it is. The week's intro and each takeaway cut across the whole video, like a trailer.
  * `lineMs` is how long a line takes: its narration once that's known.
  */
 function stepsOf(show: ShowScript, lineMs: (text: string) => number): Step[] {
   const steps: Step[] = []
-  const lead = (text: string, upTo: number) => Math.max(0, upTo - (lineMs(text) / 1000) * FAST)
   show.chapters.forEach((c, ch) => {
-    const partSteps = c.parts.flatMap((p, i): Step[] => [
-      { kind: "say", ch, text: p.say, label: `Part ${i + 1} of ${c.parts.length}`, video: c.video, from: lead(p.say, p.moment[0]) },
-      { kind: "part", ch, part: i, video: c.video, moment: p.moment },
-    ])
-    const firstFrom = (partSteps[0] as Extract<Step, { kind: "say" }>).from
-    const introFrom = lead(c.intro, firstFrom)
-    if (ch === 0) steps.push({ kind: "say", ch, text: show.intro, label: "This week", video: c.video, from: lead(show.intro, introFrom) })
-    steps.push({ kind: "say", ch, text: c.intro, label: "The takeaway", video: c.video, from: introFrom }, ...partSteps)
+    const total = secs(c.video.length) ?? c.parts.at(-1)!.moment[1] + 60
+    if (ch === 0) steps.push({ kind: "say", ch, text: show.intro, label: "This week", video: c.video, cuts: cutsFor(lineMs(show.intro), total * 0.05, total * 0.45) })
+    steps.push({ kind: "say", ch, text: c.intro, label: "The takeaway", video: c.video, cuts: cutsFor(lineMs(c.intro), total * 0.5, total * 0.95) })
+    c.parts.forEach((p, i) => {
+      const lo = i ? c.parts[i - 1]!.moment[1] : total * 0.03
+      steps.push(
+        { kind: "say", ch, text: p.say, label: `Part ${i + 1} of ${c.parts.length}`, video: c.video, cuts: cutsFor(lineMs(p.say), lo, p.moment[0]) },
+        { kind: "part", ch, part: i, video: c.video, moment: p.moment }
+      )
+    })
   })
   if (show.outro) {
     const last = show.chapters.at(-1)!
-    steps.push({ kind: "say", ch: show.chapters.length - 1, text: show.outro, label: "That's the week", video: last.video, from: last.parts.at(-1)!.moment[1] })
+    const total = secs(last.video.length) ?? last.parts.at(-1)!.moment[1] + 60
+    steps.push({ kind: "say", ch: show.chapters.length - 1, text: show.outro, label: "That's the week", video: last.video, cuts: cutsFor(lineMs(show.outro), total * 0.1, total * 0.9) })
   }
   return steps
 }
@@ -141,11 +160,24 @@ function clock(s: number): string {
   return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`
 }
 
+/** Moves a media element's volume to `to` over `ms`, then calls `then`. */
+function ramp(el: HTMLMediaElement, to: number, ms: number, then?: () => void) {
+  const from = el.volume
+  const t0 = performance.now()
+  const tick = (now: number) => {
+    const k = Math.min(1, (now - t0) / ms)
+    el.volume = from + (to - from) * k
+    if (k < 1) requestAnimationFrame(tick)
+    else then?.()
+  }
+  requestAnimationFrame(tick)
+}
+
 // ---- What tx provides: each video's stream, and the narrator's voice ----
 
 type Load<T> = { ok: true; value: T } | { ok: false; why: string }
 
-/** Runs `work` for each key, `at` most two at a time, in order; results land in the map as they come. */
+/** Runs `work` for each key, two at a time, in order; results land in the map as they come. */
 function useQueue<T>(keys: string[], work: (key: string) => Promise<T>, enabled: boolean) {
   const [done, setDone] = useState<ReadonlyMap<string, Load<T>>>(new Map())
   const asked = useRef(new Set<string>())
@@ -204,10 +236,19 @@ async function stream(videoId: string): Promise<string> {
   return sc.url
 }
 
+/** What one of the two players shows: a cut of a line's montage, or a part. */
+interface Shot {
+  key: string
+  url: string
+  from: number
+  part: boolean
+}
+
 /**
- * "Watch your debrief": a narrated video over the week, one chapter per channel. The narrator's lines play as closed
- * captions and tx's voice over the video running fast; each key part then plays as it is, with sound. Chapters on the
- * progress bar. tx streams the videos and voices the narrator; the view plays them itself.
+ * "Watch your debrief": a narrated video over the week, one chapter per channel. Under each of the narrator's lines
+ * (captions and tx's voice) runs a montage of quick cuts from the video; each key part then plays as it is, with its
+ * sound faded in. Two players take turns: while one plays, the next cut is loaded and positioned in the other, so cuts
+ * are instant and a new channel's video is ready before its chapter starts.
  */
 export function Show({ show, onClose, canTools }: { show: ShowScript; onClose: () => void; canTools: boolean }) {
   const [at, setAt] = useState(0)
@@ -215,14 +256,19 @@ export function Show({ show, onClose, canTools }: { show: ShowScript; onClose: (
   const [sound, setSound] = useState(true)
   const [muteForced, setMuteForced] = useState(false)
   const [frac, setFrac] = useState(0)
-  const vid = useRef<HTMLVideoElement>(null)
-  const voiceLine = useRef<HTMLAudioElement | null>(null)
+  const [front, setFront] = useState(0)
+  const [fade, setFade] = useState(false)
+  // The two players, filled by their elements' ref callbacks.
+  const players = useRef<(HTMLVideoElement | null)[]>([null, null])
+  const frontRef = useRef(0)
+  const prepared = useRef<{ key: string; el: number } | null>(null)
+  const showing = useRef<Shot | null>(null)
 
   const videoIds = useMemo(() => show.chapters.map((c) => c.video.id), [show])
   const media = useQueue(videoIds, stream, canTools)
   const texts = useMemo(() => [show.intro, ...show.chapters.flatMap((c) => [c.intro, ...c.parts.map((p) => p.say)]), ...(show.outro ? [show.outro] : [])], [show])
   const voiced = useQueue(texts, narrate, canTools && sound)
-  // tx couldn't voice the first line: don't hold the show for the rest, captions carry it.
+  // tx couldn't voice a line: don't hold the show for the rest, captions carry it.
   const voiceDown = [...voiced.values()].some((v) => !v.ok)
   const lineMs = (text: string) => {
     const v = voiced.get(text)
@@ -242,52 +288,86 @@ export function Show({ show, onClose, canTools }: { show: ShowScript; onClose: (
   // A step starts once its video (or the news that there's none) and its voice are here.
   const ready = !!step && (!canTools || !!source) && (!needsVoice || voiced.has(step.text))
   const noVideo = !canTools || (source && !source.ok)
+  const cut = step?.kind === "say" ? Math.min(step.cuts.length - 1, Math.floor(frac * step.cuts.length)) : 0
 
-  const jump = (i: number) => {
-    setFrac(0)
-    setPaused(false)
-    setAt(Math.max(0, Math.min(i, steps.length)))
+  /** The shot of step `i`, cut `c` (null when its video isn't streamable yet). */
+  const shotOf = (i: number, c: number): Shot | null => {
+    const s = steps[i]
+    const m = s && media.get(s.video.id)
+    if (!s || !m?.ok) return null
+    return s.kind === "say" ? { key: `${i}:${c}`, url: m.value, from: s.cuts[c]!, part: false } : { key: `${i}:0`, url: m.value, from: s.moment[0], part: true }
+  }
+  const nextShot = (): Shot | null => (step?.kind === "say" && cut + 1 < step.cuts.length ? shotOf(at, cut + 1) : shotOf(at + 1, 0))
+
+  /** Puts `shot` in `el`, positioned and paused, ready to start the moment it's shown. */
+  const load = (el: HTMLVideoElement, shot: Shot) => {
+    el.pause()
+    const seek = () => {
+      el.currentTime = shot.from
+    }
+    if (el.dataset.src !== shot.url) {
+      el.dataset.src = shot.url
+      el.src = shot.url
+      el.addEventListener("loadedmetadata", seek, { once: true })
+    } else seek()
   }
 
-  // Each step: a line plays its video from where it leads into the next part, fast and muted; a part from its start, as it is.
+  // Each cut or part: show it in the player it was prepared in (else load it in the front one), start it, then get the
+  // next one ready in the other player.
   useEffect(() => {
-    const v = vid.current
-    if (!v || !step || !ready || !source?.ok) return
-    const say = step.kind === "say"
-    const target = say ? step.from : step.moment[0]
-    const begin = () => {
-      if (Math.abs(v.currentTime - target) > 1.5) v.currentTime = target
-      v.playbackRate = say ? FAST : 1
-      v.muted = say || !sound || muteForced
-      if (paused) return
-      v.play().catch(() => {
-        // Sound needs the app's leave: carry on muted, and say so.
-        v.muted = true
-        setMuteForced(true)
-        void v.play().catch(() => {})
-      })
+    const shot = step && ready ? shotOf(at, cut) : null
+    if (!shot || showing.current?.key === shot.key) return
+    const was = showing.current
+    showing.current = shot
+    const prev = frontRef.current
+    const next = prepared.current?.key === shot.key ? prepared.current.el : prev
+    const el = players.current[next]!
+    if (next === prev) load(el, shot)
+    prepared.current = null
+    el.playbackRate = shot.part ? 1 : FAST
+    el.muted = !shot.part || !sound || muteForced
+    el.volume = shot.part ? 0 : 1
+    if (!paused)
+      void el.play().then(
+        () => shot.part && !el.muted && ramp(el, 1, FADE_IN),
+        () => {
+          // Sound needs the app's leave: carry on muted, and say so.
+          el.muted = true
+          setMuteForced(true)
+          void el.play().catch(() => {})
+        }
+      )
+    // A new channel, or leaving a part, fades across; cuts within a montage are hard.
+    setFade(!was || was.url !== shot.url || was.part !== shot.part)
+    frontRef.current = next
+    setFront(next)
+    const old = players.current[1 - next]!
+    const after = () => {
+      if (next !== prev) old.pause()
+      const upcoming = nextShot()
+      if (upcoming) {
+        load(old, upcoming)
+        prepared.current = { key: upcoming.key, el: 1 - next }
+      }
     }
-    if (v.dataset.src !== source.value) {
-      v.dataset.src = source.value
-      v.src = source.value
-      v.addEventListener("loadedmetadata", begin, { once: true })
-    } else begin()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per step, when it's ready
-  }, [at, ready])
+    if (next !== prev && was?.part && !old.muted) ramp(old, 0, FADE_OUT, after)
+    else after()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per cut or part, when it's ready
+  }, [at, cut, ready, media])
 
   useEffect(() => {
-    const v = vid.current
-    if (!v || step?.kind !== "part") return
-    v.muted = !sound || muteForced
+    const el = players.current[frontRef.current]
+    if (!el || !showing.current?.part) return
+    el.muted = !sound || muteForced
+    if (!el.muted) el.volume = 1
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the sound switch
   }, [sound])
 
   useEffect(() => {
-    const v = vid.current
-    if (!v || !source?.ok) return
-    if (paused || done || !ready) v.pause()
-    // A stream still loading is started by the step itself, once it's seeked, sped up and muted.
-    else if (v.readyState >= HTMLMediaElement.HAVE_METADATA) void v.play().catch(() => {})
+    const el = players.current[frontRef.current]
+    if (!el || !source?.ok) return
+    if (paused || done || !ready) el.pause()
+    else if (el.readyState >= HTMLMediaElement.HAVE_METADATA && showing.current) void el.play().catch(() => {})
   }, [paused, done, ready, source])
 
   // The narrator: tx's voice for the line; if tx can't voice it, the browser's own voice where there is one.
@@ -297,7 +377,6 @@ export function Show({ show, onClose, canTools }: { show: ShowScript; onClose: (
     if (v?.ok) {
       const a = new Audio(v.value.url)
       a.currentTime = (frac * lengths[at]!) / 1000
-      voiceLine.current = a
       void a.play().catch(() => {})
       return () => a.pause()
     }
@@ -312,7 +391,7 @@ export function Show({ show, onClose, canTools }: { show: ShowScript; onClose: (
     // eslint-disable-next-line react-hooks/exhaustive-deps -- per step, pause and sound; `frac` read once to resume
   }, [at, paused, sound, ready])
 
-  // The clock: a line lasts its narration; a part until the video passes its end (or, if it stalls, a while more).
+  // The clock: a line lasts its narration; a part until its video passes its end (or, if it stalls, a while more).
   useEffect(() => {
     if (!step || paused || !ready) return
     const length = lengths[at]!
@@ -320,10 +399,10 @@ export function Show({ show, onClose, canTools }: { show: ShowScript; onClose: (
     let frame = 0
     const tick = (now: number) => {
       let f = (now - began) / length
-      const v = vid.current
-      if (step.kind === "part" && v && source?.ok) {
+      const el = players.current[frontRef.current]
+      if (step.kind === "part" && el && source?.ok) {
         const [a, b] = step.moment
-        if (v.currentTime >= a - 1) f = Math.max(f * 0.5, (v.currentTime - a) / (b - a))
+        if (el.currentTime >= a - 1) f = Math.max(f * 0.5, (el.currentTime - a) / (b - a))
         if (f < 1 && (now - began) / length > 1.6) f = 1
       }
       if (f >= 1) {
@@ -339,6 +418,11 @@ export function Show({ show, onClose, canTools }: { show: ShowScript; onClose: (
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `frac` is read once to resume where a pause stopped
   }, [at, paused, ready])
 
+  const jump = (i: number) => {
+    setFrac(0)
+    setPaused(false)
+    setAt(Math.max(0, Math.min(i, steps.length)))
+  }
   const chapterOf = (i: number) => (i >= steps.length ? show.chapters.length : steps[i]!.ch)
   const prevChapter = () => jump(chapterStart[Math.max(0, chapterOf(at) - (frac < 0.15 && steps[at - 1]?.ch !== steps[at]?.ch ? 1 : 0))] ?? 0)
   const nextChapter = () => jump(chapterStart[chapterOf(at) + 1] ?? steps.length)
@@ -372,11 +456,22 @@ export function Show({ show, onClose, canTools }: { show: ShowScript; onClose: (
       </div>
 
       <div className={cn("@container relative mx-auto aspect-video overflow-hidden rounded-xl bg-black text-white", width)}>
-        <video ref={vid} playsInline preload="auto" className={cn("absolute inset-0 size-full object-contain", noVideo && "hidden")} />
+        {[0, 1].map((i) => (
+          <video
+            key={i}
+            ref={(el) => {
+              players.current[i] = el
+            }}
+            playsInline
+            preload="auto"
+            muted
+            className={cn("absolute inset-0 size-full object-contain", front === i ? "opacity-100" : "opacity-0", fade && "transition-opacity duration-300", noVideo && "hidden")}
+          />
+        ))}
         {noVideo && step && <img key={step.video.id} src={step.video.thumbnail ?? ""} alt="" className="reel-pan absolute inset-0 size-full object-cover" />}
 
         {/* A light veil under a line, so the captions read; none over a part. */}
-        <div aria-hidden className={cn("pointer-events-none absolute inset-0 transition-opacity duration-300", say || done ? "bg-black/35 opacity-100" : "opacity-0")} />
+        <div aria-hidden className={cn("pointer-events-none absolute inset-0 transition-opacity duration-300", say || done ? "bg-black/30 opacity-100" : "opacity-0")} />
 
         {chapter && !done && (
           <div className="pointer-events-none absolute top-3 left-3 flex max-w-[80%] items-center gap-2 rounded-lg bg-black/55 py-1.5 pr-3 pl-1.5 text-[clamp(11px,1.5cqw,14px)] backdrop-blur-sm">
@@ -416,7 +511,7 @@ export function Show({ show, onClose, canTools }: { show: ShowScript; onClose: (
         {step && !ready && (
           <div className="absolute inset-0 z-20 grid place-content-center justify-items-center gap-3 bg-black/60 text-center text-[14px] text-white/85">
             <Spinner className="size-6" />
-            {!source ? "Getting the video…" : voiced.size === 0 ? "Voicing the narrator… The first time, tx downloads its voice (about 90 MB)." : "Voicing the narrator…"}
+            {!source ? "Getting the video…" : voiced.size === 0 ? "Voicing the narrator… The first time, tx downloads its voice." : "Voicing the narrator…"}
           </div>
         )}
 

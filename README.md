@@ -163,7 +163,7 @@ Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/s
 
 Only uploads published after you start watching a channel are screened automatically, so adding a channel doesn't trigger a backlog.
 
-The narrated debrief video plays inside the app: the view gets each YouTube video's file straight from Google's servers (`video_stream`, through yt-dlp) and the narrator's voice from [Piper](https://github.com/rhasspy/piper), which speaks on your computer (`narrate`). Both tools are for the view, not the agent. The first narration downloads Piper (about 26 MB) and a voice (about 63 MB, English or Czech) into the data folder.
+The narrated debrief video plays inside the app: the view gets each YouTube video's file straight from Google's servers (`video_stream`, through yt-dlp) and the narrator's voice, which speaks on your computer (`narrate`): English with [Kokoro](https://github.com/hexgrad/kokoro) through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), Czech with [Piper](https://github.com/rhasspy/piper). Both tools are for the view, not the agent. The first English narration downloads sherpa-onnx (about 20-28 MB, by platform) and the Kokoro voice (about 132 MB, 155 MB unpacked) into the data folder; the first Czech one downloads Piper (about 26 MB) and its voice (about 63 MB).
 
 In apps that support MCP Apps (the Codex app, Claude Desktop, claude.ai), results appear as a brief: a list grouped by Watch, Skim and Skip, with the selected video beside it. Its timeline shades the part worth watching and marks each takeaway; click one to open the video at that moment.
 

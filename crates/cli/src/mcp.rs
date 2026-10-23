@@ -76,7 +76,7 @@ fn tools() -> Value {
         { "name": "video_stream", "description": "A direct, playable URL of a YouTube video (picture and sound in one file) for the debrief video's <video> element (for the view).",
           "inputSchema": { "type": "object", "properties": { "video_id": { "type": "string", "description": "YouTube video id" } }, "required": ["video_id"] },
           "_meta": { "ui": { "visibility": ["app"] } } },
-        { "name": "narrate", "description": "Speak a line in the narrator's voice (Piper, on this computer; downloaded on first use) as a WAV (for the debrief video's view).",
+        { "name": "narrate", "description": "Speak a line in the narrator's voice (Kokoro for English, Piper for Czech, on this computer; downloaded on first use) as a WAV (for the debrief video's view).",
           "inputSchema": { "type": "object", "properties": {
             "text": { "type": "string", "maxLength": 400 },
             "lang": { "type": "string", "enum": ["en", "cs"], "default": "en" } }, "required": ["text"] },

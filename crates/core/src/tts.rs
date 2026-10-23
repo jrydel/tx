@@ -1,17 +1,42 @@
-//! The narrator's voice: text to speech with Piper (rhasspy/piper, neural, runs on this computer).
-//! The Piper release and the voice models are downloaded into the data dir on first use.
+//! The narrator's voice, on this computer: English with Kokoro (run by sherpa-onnx), Czech with
+//! Piper (rhasspy/piper; Kokoro has no Czech). The engines and the voice models are downloaded into
+//! the data dir on first use.
 
 use crate::paths;
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use futures_util::StreamExt;
-use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::ffi::{OsStr, OsString};
+use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{Mutex, Semaphore};
 
 /// Longest text one call narrates.
 pub const MAX_CHARS: usize = 400;
+
+/// sherpa-onnx's prebuilt `sherpa-onnx-offline-tts` with its onnxruntime. This release still
+/// phonemizes with espeak-ng (2.0 dropped it, and then skips every word its lexicon lacks).
+const SHERPA_RELEASE: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8";
+const SHERPA_ASSET: &str = if cfg!(windows) {
+    "sherpa-onnx-v1.13.8-win-x64-shared-MT-MinSizeRel.tar.bz2"
+} else if cfg!(target_os = "macos") {
+    if cfg!(target_arch = "aarch64") {
+        "sherpa-onnx-v1.13.8-osx-arm64-shared.tar.bz2"
+    } else {
+        "sherpa-onnx-v1.13.8-osx-x64-shared.tar.bz2"
+    }
+} else if cfg!(target_arch = "aarch64") {
+    "sherpa-onnx-v1.13.8-linux-aarch64-shared-cpu.tar.bz2"
+} else {
+    "sherpa-onnx-v1.13.8-linux-x64-shared.tar.bz2"
+};
+/// Kokoro v1.0 (int8, 54 voices), a folder of that name inside the archive.
+const KOKORO_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2";
+/// `af_heart`, Kokoro's best-rated voice: warm and even. Part of the cache key with the speed, so
+/// changing either re-voices every line.
+const KOKORO_SPEAKER: u32 = 3;
+const KOKORO_SPEED: f32 = 1.0;
+const KOKORO_VOICE: &str = "kokoro-v1_0-af_heart-1.0";
 
 /// The release bundles the binary, its libraries and espeak-ng-data under `piper/`.
 const PIPER_RELEASE: &str = "https://github.com/rhasspy/piper/releases/download/2023.11.14-2";
@@ -29,25 +54,19 @@ const PIPER_ASSET: &str = if cfg!(windows) {
     "piper_linux_x86_64.tar.gz"
 };
 const VOICES: &str = "https://huggingface.co/rhasspy/piper-voices/resolve/main";
+/// The Czech voice's path in the piper-voices repository, without extension.
+const PIPER_CZECH: &str = "cs/cs_CZ/jirka/medium/cs_CZ-jirka-medium";
+const PIPER_CZECH_NAME: &str = "cs_CZ-jirka-medium";
 
 /// One download at a time, so parallel first calls don't fetch everything twice.
 static SETUP: Mutex<()> = Mutex::const_new(());
-/// Piper processes running at once.
-static PIPER: Semaphore = Semaphore::const_new(2);
+/// Voice engine processes running at once.
+static SYNTH: Semaphore = Semaphore::const_new(2);
 
 pub struct Narration {
     /// A complete WAV file.
     pub wav: Vec<u8>,
     pub ms: u64,
-}
-
-/// Voice path in the piper-voices repository, without extension.
-fn voice(lang: &str) -> Result<&'static str> {
-    match lang {
-        "en" => Ok("en/en_US/lessac/medium/en_US-lessac-medium"),
-        "cs" => Ok("cs/cs_CZ/jirka/medium/cs_CZ-jirka-medium"),
-        other => bail!("no narrator voice for language {other:?} (en or cs)"),
-    }
 }
 
 /// Speak `text` (at most `MAX_CHARS`) in `lang` ("en" or "cs"). Spoken lines are cached on disk.
@@ -58,12 +77,15 @@ pub async fn narrate(text: &str, lang: &str) -> Result<Narration> {
         text.chars().count() <= MAX_CHARS,
         "text is longer than {MAX_CHARS} characters"
     );
-    let voice = voice(lang)?;
-    let name = voice.rsplit('/').next().unwrap_or(voice);
+    let (english, voice) = match lang {
+        "en" => (true, KOKORO_VOICE),
+        "cs" => (false, PIPER_CZECH_NAME),
+        other => bail!("no narrator voice for language {other:?} (en or cs)"),
+    };
     let cache = paths::cache_dir().join("tts");
     let wav_path = cache.join(format!(
         "{}.wav",
-        sha1_smol::Sha1::from(format!("{name}\n{text}")).digest()
+        sha1_smol::Sha1::from(format!("{voice}\n{text}")).digest()
     ));
     if let Ok(wav) = tokio::fs::read(&wav_path).await
         && let Ok(ms) = wav_ms(&wav)
@@ -71,27 +93,63 @@ pub async fn narrate(text: &str, lang: &str) -> Result<Narration> {
         return Ok(Narration { wav, ms });
     }
 
-    let (piper, model) = setup(voice, name)
-        .await
-        .map_err(|e| anyhow!("Couldn't set up the narrator voice: {e:#}"))?;
-    let _slot = PIPER.acquire().await?;
-    tokio::fs::create_dir_all(&cache).await?;
     let mut part = wav_path.clone().into_os_string();
     part.push(".part");
-    let mut child = paths::command(&piper)
-        .arg("--model")
-        .arg(&model)
-        .arg("--output_file")
-        .arg(&part)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("Couldn't start the narrator voice")?;
-    let mut stdin = child.stdin.take().context("no stdin")?;
-    stdin.write_all(text.as_bytes()).await?;
-    stdin.write_all(b"\n").await?;
-    drop(stdin);
+    let (mut cmd, stdin) = if english {
+        let (exe, model) = setup_kokoro()
+            .await
+            .map_err(|e| anyhow!("Couldn't set up the narrator voice: {e:#}"))?;
+        let flag = |name: &str, value: &OsStr| {
+            let mut arg = OsString::from(format!("--{name}="));
+            arg.push(value);
+            arg
+        };
+        let mut cmd = paths::command(&exe);
+        cmd.arg(flag(
+            "kokoro-model",
+            model.join("model.int8.onnx").as_os_str(),
+        ))
+        .arg(flag("kokoro-voices", model.join("voices.bin").as_os_str()))
+        .arg(flag("kokoro-tokens", model.join("tokens.txt").as_os_str()))
+        .arg(flag(
+            "kokoro-data-dir",
+            model.join("espeak-ng-data").as_os_str(),
+        ))
+        .arg("--kokoro-lang=en")
+        .arg(format!("--sid={KOKORO_SPEAKER}"))
+        .arg(format!("--speed={KOKORO_SPEED}"))
+        .arg("--num-threads=4")
+        .arg(flag("output-filename", &part))
+        .arg("--") // so a line that starts with dashes stays text
+        .arg(&text);
+        (cmd, None)
+    } else {
+        let (exe, model) = setup_piper()
+            .await
+            .map_err(|e| anyhow!("Couldn't set up the narrator voice: {e:#}"))?;
+        let mut cmd = paths::command(&exe);
+        cmd.arg("--model")
+            .arg(&model)
+            .arg("--output_file")
+            .arg(&part);
+        (cmd, Some(&text))
+    };
+
+    let _slot = SYNTH.acquire().await?;
+    tokio::fs::create_dir_all(&cache).await?;
+    cmd.stdin(if stdin.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    })
+    .stdout(Stdio::null())
+    .stderr(Stdio::piped());
+    let mut child = cmd.spawn().context("Couldn't start the narrator voice")?;
+    if let Some(text) = stdin {
+        let mut pipe = child.stdin.take().context("no stdin")?;
+        pipe.write_all(text.as_bytes()).await?;
+        pipe.write_all(b"\n").await?;
+    }
     let out = child.wait_with_output().await?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -107,8 +165,48 @@ pub async fn narrate(text: &str, lang: &str) -> Result<Narration> {
     Ok(Narration { wav, ms })
 }
 
-/// Piper and the voice's model files, downloaded when missing.
-async fn setup(voice: &str, name: &str) -> Result<(PathBuf, PathBuf)> {
+/// sherpa-onnx's TTS binary and the Kokoro model folder, downloaded when missing.
+async fn setup_kokoro() -> Result<(PathBuf, PathBuf)> {
+    const EXE: &str = if cfg!(windows) {
+        "sherpa-onnx-offline-tts.exe"
+    } else {
+        "sherpa-onnx-offline-tts"
+    };
+    let dir = paths::data_dir().join("tts");
+    let exe = dir.join("sherpa").join("bin").join(EXE);
+    let model = dir.join("kokoro");
+    if exe.is_file() && model.is_dir() {
+        return Ok((exe, model));
+    }
+    let _one = SETUP.lock().await;
+    // Each folder only appears whole: it is unpacked aside and renamed.
+    if !exe.is_file() {
+        let url = format!("{SHERPA_RELEASE}/{SHERPA_ASSET}");
+        install(&url, &dir.join("sherpa"), |rel| {
+            rel.starts_with("lib")
+                || rel.starts_with("bin")
+                    && (rel.file_name() == Some(OsStr::new(EXE))
+                        || rel.extension() == Some(OsStr::new("dll")))
+        })
+        .await
+        .context("downloading sherpa-onnx")?;
+    }
+    if !model.is_dir() {
+        install(KOKORO_URL, &model, |rel| {
+            rel.starts_with("espeak-ng-data")
+                || ["model.int8.onnx", "voices.bin", "tokens.txt"]
+                    .iter()
+                    .any(|f| rel == Path::new(f))
+        })
+        .await
+        .context("downloading the Kokoro voice")?;
+    }
+    Ok((exe, model))
+}
+
+/// Piper and the Czech voice's model files, downloaded when missing.
+async fn setup_piper() -> Result<(PathBuf, PathBuf)> {
+    let name = PIPER_CZECH_NAME;
     let dir = paths::data_dir().join("tts");
     let piper = dir
         .join("piper")
@@ -125,7 +223,7 @@ async fn setup(voice: &str, name: &str) -> Result<(PathBuf, PathBuf)> {
     for ext in ["onnx.json", "onnx"] {
         let file = dir.join("voices").join(format!("{name}.{ext}"));
         if !file.is_file() {
-            download(&format!("{VOICES}/{voice}.{ext}"), &file)
+            download(&format!("{VOICES}/{PIPER_CZECH}.{ext}"), &file)
                 .await
                 .with_context(|| format!("downloading the {name} voice"))?;
         }
@@ -148,6 +246,37 @@ async fn install_piper(dir: &Path) -> Result<()> {
         let dest = dir.join("piper");
         let _ = std::fs::remove_dir_all(&dest); // an earlier attempt that died half way
         std::fs::rename(staging.path().join("piper"), dest)?;
+        std::fs::remove_file(&archive)?;
+        anyhow::Ok(())
+    })
+    .await?
+}
+
+/// Download a `.tar.bz2` and unpack the files `keep` selects (paths inside the archive's top
+/// folder) into a new folder `dest`.
+async fn install(url: &str, dest: &Path, keep: fn(&Path) -> bool) -> Result<()> {
+    let dir = dest.parent().context("no parent folder")?.to_path_buf();
+    let archive = dir.join(url.rsplit('/').next().unwrap_or(url));
+    download(url, &archive).await?;
+    let dest = dest.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let staging = tempfile::tempdir_in(&dir)?;
+        let file = std::fs::File::open(&archive)?;
+        for entry in tar::Archive::new(bzip2::read::BzDecoder::new(file)).entries()? {
+            let mut entry = entry?;
+            let rel: PathBuf = entry.path()?.components().skip(1).collect();
+            let plain = rel.components().all(|c| matches!(c, Component::Normal(_)));
+            if !entry.header().entry_type().is_file() || !plain || !keep(&rel) {
+                continue;
+            }
+            let to = staging.path().join(&rel);
+            if let Some(parent) = to.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            entry.unpack(&to)?;
+        }
+        let _ = std::fs::remove_dir_all(&dest); // an earlier attempt that died half way
+        std::fs::rename(staging.path(), dest)?;
         std::fs::remove_file(&archive)?;
         anyhow::Ok(())
     })
