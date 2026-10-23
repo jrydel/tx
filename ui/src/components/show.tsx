@@ -66,6 +66,8 @@ export function showOf(data: BriefData): ShowScript | null {
         return at == null || at >= total - 3 ? [] : [{ say: clip(t.text, 160), moment: [at, Math.min(at + PART, total)] }]
       })
       .sort((a, b) => a.moment[0] - b.moment[0])
+      // Takeaways can share a timestamp: a part that starts before the last kept one ends would replay it.
+      .reduce<Part[]>((kept, p) => (kept.length && p.moment[0] < kept.at(-1)!.moment[1] ? kept : [...kept, p]), [])
       .slice(0, 4)
     if (!parts.length) continue
     channels.add(v.channel)
