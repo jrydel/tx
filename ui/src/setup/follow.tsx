@@ -8,7 +8,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { callTool } from "@/host"
 import type { Pick } from "@/types"
 import type { SetupCtx } from "./ctx"
-import { H2, Hint } from "./parts"
+import { Hint } from "./parts"
 import { SourceSearch } from "./search"
 
 const BROWSERS = ["Chrome", "Firefox", "Safari", "Edge", "Brave"]
@@ -127,7 +127,6 @@ export function FollowStep({ ctx }: { ctx: SetupCtx }) {
 
   return (
     <>
-      <H2>{data.channels.length ? "Pick what to follow" : "What should tx follow?"}</H2>
       <Hint lead>Only what you follow gets analyzed. Search for a channel or podcast; you can add more later.</Hint>
       <SourceSearch channels={data.channels} canSearch={ctx.canTools} onFollow={follow} />
 
@@ -159,7 +158,7 @@ export function FollowStep({ ctx }: { ctx: SetupCtx }) {
       {note && <p className="m-0 mt-2 text-[13px] text-muted-foreground">{note}</p>}
 
       {candidates.length > 0 && (
-        <div className="mt-2.5 flex min-h-[172px] flex-1 shrink-0 basis-0 flex-col">
+        <div className="mt-2.5 flex min-h-[172px] flex-1 shrink-0 basis-0 flex-col group-data-compact/setup:min-h-[112px]">
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
             {suggesting ? (
               <Hint className="m-0 flex items-center gap-2">

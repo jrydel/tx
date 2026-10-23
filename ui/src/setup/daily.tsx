@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { followedSummary, type SetupCtx } from "./ctx"
-import { H2, Hint } from "./parts"
+import { Hint } from "./parts"
 
 export function DailyStep({ ctx }: { ctx: SetupCtx }) {
   const { data } = ctx
@@ -20,7 +20,6 @@ export function DailyStep({ ctx }: { ctx: SetupCtx }) {
 
   return (
     <>
-      <H2>{data.daily_brief ? "Your daily brief is on" : "Get a brief every morning?"}</H2>
       <Hint lead>It runs on this computer, even when this app is closed.</Hint>
       {!data.can_schedule && (
         <Hint>This needs Claude Code or Codex installed. You can still ask for your brief here any time.</Hint>

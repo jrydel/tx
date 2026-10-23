@@ -4,8 +4,8 @@ import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
 import { callTool, textOf } from "@/host"
 import { isBrief } from "@/types"
-import { followedSummary, type SetupCtx } from "./ctx"
-import { H2, Hint } from "./parts"
+import type { SetupCtx } from "./ctx"
+import { Hint } from "./parts"
 
 type Phase =
   | { kind: "idle" }
@@ -18,8 +18,7 @@ const ASK_MESSAGE =
   "Use tx: check what I follow for new uploads, screen them and show me my brief. If nothing is new yet, give me a TL;DR of the latest uploads instead."
 
 /** You're set. "Show my first brief" has the user's AI screen what's new, waits for it, and shows the brief in place. */
-export function DoneStep({ ctx, done }: { ctx: SetupCtx; done: { about: boolean; follow: boolean; daily: boolean } }) {
-  const { data } = ctx
+export function DoneStep({ ctx }: { ctx: SetupCtx }) {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" })
 
   const showBrief = async () => {
@@ -74,24 +73,12 @@ export function DoneStep({ ctx, done }: { ctx: SetupCtx; done: { about: boolean;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screening])
 
-  const following = followedSummary(data)
   const busy = phase.kind === "starting" || phase.kind === "loading" || phase.kind === "screening"
 
   return (
     <>
-      <H2>You're set</H2>
-      <ul className="m-0 grid list-none gap-1.5 p-0">
-        {[done.about && "Scored for your interests", following && `Following ${following}`, data.daily_brief && "A brief every morning"]
-          .filter(Boolean)
-          .map((t) => (
-            <li key={t as string} className="flex gap-2 before:font-bold before:text-watch before:content-['✓']">
-              {t}
-            </li>
-          ))}
-      </ul>
-
       {phase.kind === "screening" ? (
-        <div className="mt-3.5 grid gap-2" role="status">
+        <div className="grid gap-2" role="status">
           <Progress value={((phase.total - Math.min(phase.left, phase.total)) / phase.total) * 100} aria-label="Screening progress" />
           <p className="m-0 flex items-center gap-2 text-[13.5px] text-muted-foreground">
             <Spinner />
@@ -99,11 +86,11 @@ export function DoneStep({ ctx, done }: { ctx: SetupCtx; done: { about: boolean;
           </p>
         </div>
       ) : phase.kind === "empty" ? (
-        <Hint className="mt-3.5">
+        <Hint className="mb-0">
           Nothing to show yet{phase.message ? `: ${phase.message.replace(/[.\s]+$/, "")}` : ""}. Paste a video link in the chat and I'll give you a TL;DR.
         </Hint>
       ) : (
-        <Hint lead className="mt-3.5">
+        <Hint lead className="mb-0">
           Ask for your brief any time, or paste any video link for a TL;DR.
         </Hint>
       )}

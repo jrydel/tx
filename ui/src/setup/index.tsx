@@ -4,19 +4,21 @@ import { ExpandButton } from "@/components/bits"
 import { cn } from "@/lib/utils"
 import { callTool, sendMessage, useHost } from "@/host"
 import { isOnboarding, type OnboardingData, type Step } from "@/types"
-import type { ActOpts, Call, SetupCtx } from "./ctx"
+import { followedSummary, type ActOpts, type Call, type SetupCtx } from "./ctx"
+import { StepBox } from "./parts"
 import { AboutStep } from "./about"
 import { FollowStep } from "./follow"
 import { DailyStep } from "./daily"
 import { DoneStep } from "./done"
 
+/** One box per question, in this order. */
 const STEPS: ["about" | "follow" | "daily", string][] = [
-  ["about", "About you"],
-  ["follow", "What to follow"],
-  ["daily", "Daily brief"],
+  ["about", "What do you want to learn?"],
+  ["follow", "What should tx follow?"],
+  ["daily", "A brief every morning?"],
 ]
 
-/** Setup: about you, what to follow, the daily brief, then done. Starts at the first unfinished step. */
+/** Setup: three questions in their own boxes, then done. Opens at the first unanswered one. */
 export function Setup({ initial, onBrief }: { initial: OnboardingData; onBrief: (data: unknown) => void }) {
   const host = useHost()
   const [data, setData] = useState(initial)
@@ -83,50 +85,35 @@ export function Setup({ initial, onBrief }: { initial: OnboardingData; onBrief: 
 
   const ctx: SetupCtx = { data, step, setStep, canTools: host.canCallTools, act, refresh, onBrief }
   const done = { about: !!data.profile.trim(), follow: data.channels.some((c) => c.watching), daily: data.daily_brief }
+  const summary = { about: data.profile.trim(), follow: followedSummary(data), daily: data.daily_brief ? "On" : "" }
+  const form = { about: <AboutStep ctx={ctx} />, follow: <FollowStep ctx={ctx} />, daily: <DailyStep ctx={ctx} /> }
 
   return (
     <div
       ref={panel}
       className={cn(
-        "group/setup thin flex min-h-0 flex-col overflow-y-auto rounded-xl border bg-card px-[18px] py-3.5 data-compact:py-3 *:shrink-0",
+        "group/setup thin flex min-h-0 flex-col gap-2 overflow-y-auto *:shrink-0 group-data-compact/setup:gap-1.5",
         step === "follow" && "min-h-[min(calc(var(--app-h)-4px),480px)]"
       )}
     >
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 group-data-compact/setup:mb-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 pb-0.5">
         <b className="text-[15px] font-bold">Set up tx</b>
         <div className="flex items-center gap-3">
-          <span className="text-[12.5px] text-faint group-data-compact/setup:hidden">Two minutes, then your first brief</span>
+          <span className="text-[12.5px] text-faint group-data-compact/setup:hidden">Three questions, then your first brief</span>
           <ExpandButton />
         </div>
       </div>
 
-      <nav aria-label="Setup steps" className="mb-4 grid grid-cols-3 group-data-compact/setup:mb-2.5">
-        {STEPS.map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            aria-current={id === step ? "step" : undefined}
-            data-done={done[id] || undefined}
-            title={done[id] ? `${label}: done` : label}
-            onClick={() => setStep(id)}
-            className={cn(
-              "group/stop relative grid cursor-pointer justify-items-start gap-[7px] text-left text-[12.5px] font-semibold text-faint hover:text-foreground aria-[current=step]:text-foreground",
-              "after:absolute after:top-1.5 after:right-0.5 after:left-3.5 after:h-0.5 after:rounded-[1px] after:bg-border last:after:hidden data-done:after:bg-watch"
-            )}
-          >
-            <i
-              aria-hidden
-              className="relative z-10 size-3.5 rounded-full border-2 border-border bg-card group-data-done/stop:border-watch group-data-done/stop:bg-watch group-aria-[current=step]/stop:border-foreground group-aria-[current=step]/stop:shadow-[0_0_0_4px_color-mix(in_srgb,var(--foreground)_14%,transparent)] group-data-done/stop:group-aria-[current=step]/stop:border-watch"
-            />
-            {label}
-          </button>
-        ))}
-      </nav>
-
-      {step === "about" && <AboutStep ctx={ctx} />}
-      {step === "follow" && <FollowStep ctx={ctx} />}
-      {step === "daily" && <DailyStep ctx={ctx} />}
-      {step === "done" && <DoneStep ctx={ctx} done={done} />}
+      {STEPS.map(([id, question], i) => (
+        <StepBox key={id} n={i + 1} title={question} open={step === id} done={done[id]} summary={summary[id]} onOpen={() => setStep(id)} grow={id === "follow"}>
+          {form[id]}
+        </StepBox>
+      ))}
+      {step === "done" && (
+        <StepBox title="You're set" open done>
+          <DoneStep ctx={ctx} />
+        </StepBox>
+      )}
 
       {error && (
         <Alert variant="destructive" className="mt-3">

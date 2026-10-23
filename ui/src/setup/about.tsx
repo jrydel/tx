@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import type { SetupCtx } from "./ctx"
-import { H2, Hint } from "./parts"
+import { Hint } from "./parts"
 
 const EXAMPLES: [string, string][] = [
   ["Engineer", "I'm a backend engineer building LLM features. I want concrete agent and eval techniques and notable model launches; skip hype and drama."],
@@ -25,7 +25,6 @@ export function AboutStep({ ctx }: { ctx: SetupCtx }) {
 
   return (
     <>
-      <H2>Who are you, and what do you want to learn?</H2>
       <Hint lead>Every video and episode is scored against this. Name your role, the topics you care about and what to skip.</Hint>
       <Textarea
         value={text}
