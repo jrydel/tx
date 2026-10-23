@@ -17,6 +17,10 @@ export interface Card {
   podcast: boolean
   length?: string
   thumbnail?: string | null
+  /** new: waiting to be analyzed; failed: couldn't be (no transcript…); passed: judged not worth transcribing. */
+  state: "new" | "done" | "failed" | "passed"
+  /** Why, when failed or passed. */
+  error?: string | null
   analyzed: boolean
   relevance?: number
   verdict?: string
@@ -29,9 +33,22 @@ export interface Card {
   reason?: string
 }
 
+/** What the week's analyzed videos add up to, written by the user's own AI after a screening. */
+export interface Debrief {
+  headline: string
+  summary: string
+  threads: { title: string; text: string; video_ids: string[] }[]
+  /** The analyzed videos it was written over. */
+  video_ids: string[]
+  written_at: string
+}
+
 export interface BriefData {
   videos: Card[]
   profile?: string
+  debrief?: Debrief | null
+  /** Set when this is the brief of the last `days` days, rather than a list of picked videos. */
+  days?: number
 }
 
 export interface Channel {

@@ -328,6 +328,24 @@ pub fn recent(conn: &Connection, channel: Option<&str>, limit: i64) -> Result<Ve
     Ok(rows)
 }
 
+/// Videos of watched channels published in the last `days` days (not those from before following,
+/// `skipped`), newest first; `done_only` keeps the analyzed ones.
+pub fn week(conn: &Connection, days: i64, done_only: bool, limit: i64) -> Result<Vec<Video>> {
+    let sql = format!(
+        "SELECT {VIDEO_COLS} FROM videos v JOIN channels c ON c.id = v.channel_id \
+         WHERE c.enabled = 1 AND v.status != 'skipped' AND (?2 = 0 OR v.status = 'done') \
+         AND datetime(v.published) >= datetime('now', ?1) ORDER BY v.published DESC LIMIT ?3"
+    );
+    let rows = conn
+        .prepare(&sql)?
+        .query_map(
+            params![format!("-{days} days"), done_only, limit],
+            video_row,
+        )?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
 pub fn channels(conn: &Connection) -> Result<Vec<Channel>> {
     let rows = conn
         .prepare(
@@ -440,5 +458,39 @@ mod tests {
             )
             .unwrap();
         assert_eq!(at, "2020-01-01T00:00:00+00:00");
+    }
+
+    #[test]
+    fn week_is_recent_uploads_of_watched_channels_before_following_excluded() {
+        let conn = memory();
+        upsert_channel(&conn, "UC1", "Watched").unwrap();
+        upsert_channel(&conn, "UC2", "Not watched").unwrap();
+        set_enabled(&conn, "UC1", true).unwrap();
+        let ago = |days: i64| {
+            (chrono::Utc::now() - chrono::Duration::days(days))
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, false)
+        };
+        for (id, channel, status, published) in [
+            ("new", "UC1", "queued", ago(1)),
+            ("done", "UC1", "done", ago(3)),
+            ("failed", "UC1", "error", ago(2)),
+            ("before", "UC1", "skipped", ago(1)),
+            ("old", "UC1", "done", ago(9)),
+            ("other", "UC2", "done", ago(1)),
+        ] {
+            conn.execute(
+                "INSERT INTO videos(id, channel_id, title, url, published, status) VALUES(?1, ?2, ?1, 'u', ?4, ?3)",
+                params![id, channel, status, published],
+            )
+            .unwrap();
+        }
+        let all: Vec<String> = week(&conn, 7, false, 60)
+            .unwrap()
+            .into_iter()
+            .map(|v| v.id)
+            .collect();
+        assert_eq!(all, ["new", "failed", "done"], "newest first");
+        assert_eq!(ids(week(&conn, 7, true, 60).unwrap()), ["done"]);
+        assert_eq!(week(&conn, 7, false, 2).unwrap().len(), 2);
     }
 }

@@ -9,7 +9,7 @@ use dialoguer::console::{Style, measure_text_width, style};
 use dialoguer::{Confirm, Input, MultiSelect, Select, theme::ColorfulTheme};
 use std::io::IsTerminal;
 use tx_core::db::{self, Db};
-use tx_core::{feeds, podcasts};
+use tx_core::{debrief, feeds, podcasts};
 
 const BROWSERS: [&str; 5] = ["chrome", "firefox", "safari", "edge", "brave"];
 const STEPS: [&str; 4] = ["Your AI", "About you", "What to follow", "Daily brief"];
@@ -137,10 +137,29 @@ fn connected_apps() -> Vec<&'static str> {
     apps
 }
 
+/// Width the home screen wraps the debrief's summary to.
+const DEBRIEF_WIDTH: usize = 68;
+
+/// `text` broken into lines of at most `width` characters, at spaces.
+fn wrap(text: &str, width: usize) -> impl Iterator<Item = String> {
+    let mut lines: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        match lines.last_mut() {
+            Some(l) if l.chars().count() + 1 + word.chars().count() <= width => {
+                l.push(' ');
+                l.push_str(word);
+            }
+            _ => lines.push(word.to_string()),
+        }
+    }
+    lines.into_iter()
+}
+
 /// What a bare `tx` shows once setup is done: you use tx inside your AI app, and where you stand.
 pub fn home() -> Result<()> {
     let conn = db::connect()?;
     let profile = db::get_settings(&conn)?.profile;
+    let debrief = debrief::current(&conn)?;
     let channels = db::channels(&conn)?;
     let waiting = db::pending(&conn)?.len();
     drop(conn);
@@ -158,6 +177,13 @@ pub fn home() -> Result<()> {
         ),
         format!("  {}", style("Show me my tx brief").bold()),
         String::new(),
+    ];
+    if let Some(d) = debrief {
+        lines.push(style(&d.headline).bold().to_string());
+        lines.extend(wrap(&d.summary, DEBRIEF_WIDTH).map(|l| style(l).dim().to_string()));
+        lines.push(String::new());
+    }
+    lines.extend([
         tick(format!(
             "Scored for: {short}{}",
             if profile.chars().count() > 60 {
@@ -178,7 +204,7 @@ pub fn home() -> Result<()> {
                 style("(tx schedule)").dim()
             ))
         },
-    ];
+    ]);
     if waiting > 0 {
         lines.push(open(format!(
             "{waiting} new videos waiting {}",

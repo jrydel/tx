@@ -10,6 +10,7 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tx_core::captions::Transcript;
 use tx_core::db::{self, Db};
+use tx_core::debrief;
 use tx_core::report::{self, AgentAnalysis};
 use tx_core::{captions, feeds, podcasts, ytdlp};
 
@@ -18,10 +19,11 @@ const PART_CHARS: usize = 60_000;
 
 const INSTRUCTIONS: &str = "tx watches YouTube channels and podcasts on this computer. To screen new uploads: get_profile, \
 check_new_videos, then for each video or episode get_transcript and save_analysis (or skip_video, or pass_video for a \
-podcast episode that clearly doesn't fit from its title and notes), then write_digest. For a channel's or show's latest \
-use get_profile, then recent_videos. Every analysis is for the profile's owner. Show results to the user with \
-show_videos. At the start of a conversation about tx, call status and guide the user to its next step; while setup \
-isn't finished, show the onboarding panel. The screen-videos skill has the full procedure and scoring rubric.";
+podcast episode that clearly doesn't fit from its title and notes), then write_digest, then save_debrief when it asks for \
+one. For a channel's or show's latest use get_profile, then recent_videos. Every analysis is for the profile's owner. Show \
+results to the user with show_videos: without ids it is their brief for the last 7 days, with the debrief on top; pass ids \
+only to show specific videos. At the start of a conversation about tx, call status and guide the user to its next step; \
+while setup isn't finished, show the onboarding panel. The screen-videos skill has the full procedure and scoring rubric.";
 
 /// How long get_transcript waits for a transcription before telling the agent to come back; under
 /// the tool-call timeouts of common hosts, while the transcription keeps running.
@@ -97,14 +99,22 @@ fn tools() -> Value {
           "inputSchema": { "type": "object", "properties": { "channel": { "type": "string", "description": "Channel id or part of its name (see list_channels); omit for all channels" }, "limit": { "type": "integer", "default": 10 } } } },
         { "name": "feed", "description": "Videos analyzed recently, best first within the time window.",
           "inputSchema": { "type": "object", "properties": { "min_relevance": { "type": "integer", "default": 0 }, "limit": { "type": "integer", "default": 20 } } } },
-        { "name": "show_videos", "description": "Show videos to the user as cards: thumbnail, score, verdict, TL;DR, timestamped takeaways. Call it whenever you present analyzed videos to the user, with their ids (shown Watch first, then Skim, then Skip, best score first); without ids it shows the latest analyzed videos.",
+        { "name": "show_videos", "description": "Show videos to the user as cards: thumbnail, score, verdict, TL;DR, timestamped takeaways. Without ids it is the user's brief for the last 7 days (what their channels and shows uploaded, a headline, the debrief across the week's videos, the picks, a page per video): call it that way whenever you talk with the user about their videos. With ids it shows exactly those videos (shown Watch first, then Skim, then Skip, best score first).",
           "inputSchema": { "type": "object", "properties": {
-            "video_ids": { "type": "array", "items": { "type": "string" } },
+            "video_ids": { "type": "array", "items": { "type": "string" }, "description": "Only these videos; omit for the last 7 days' brief" },
             "min_relevance": { "type": "integer", "default": 0, "description": "Without video_ids: lowest score to include" },
-            "limit": { "type": "integer", "default": 10, "description": "Without video_ids: how many" } } },
+            "limit": { "type": "integer", "description": "Without video_ids: how many (default 60 for the week; 10 for the latest analyzed when the week has none)" } } },
           "_meta": { "ui": { "resourceUri": CARDS_URI } } },
-        { "name": "write_digest", "description": "Write a markdown digest of everything analyzed since the last digest, and notify the user if something is worth their time.",
-          "inputSchema": { "type": "object", "properties": {} } }
+        { "name": "write_digest", "description": "Write a markdown digest of everything analyzed since the last digest, and notify the user if something is worth their time. When the last 7 days' analyzed videos changed since the last debrief, the reply asks you to write one with save_debrief.",
+          "inputSchema": { "type": "object", "properties": {} } },
+        { "name": "save_debrief", "description": "Store your debrief across the last 7 days' analyzed videos: what they add up to for this user, what to watch first, and the themes that run through two or more of them. Call it when write_digest asks for it. It shows on top of the user's brief.",
+          "inputSchema": { "type": "object", "required": ["headline", "summary"], "properties": {
+            "headline": { "type": "string", "description": "One sentence, 200 characters at most" },
+            "summary": { "type": "string", "description": "2-4 sentences, 800 characters at most: what the week adds up to for this user and what to watch first" },
+            "threads": { "type": "array", "maxItems": 3, "description": "Themes that run through two or more videos", "items": { "type": "object", "required": ["title", "text", "video_ids"], "properties": {
+                "title": { "type": "string", "description": "A few words" },
+                "text": { "type": "string", "description": "1-2 sentences" },
+                "video_ids": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Ids from the analyses write_digest listed" } } } } } } }
     ])
 }
 
@@ -415,35 +425,96 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
             serde_json::to_string_pretty(&list)?
         }
         "write_digest" => {
-            let d = report::write_digest(&db.lock().unwrap())?;
+            let conn = db.lock().unwrap();
+            let d = report::write_digest(&conn)?;
             crate::notify_digest(&d);
-            match &d.path {
+            let digest = match &d.path {
                 Some(p) => format!("Digest written to {}\n\n{}", p.display(), d.markdown),
                 None => d.markdown,
-            }
+            };
+            format!("{digest}\n\n---\n\n{}", debrief::request(&conn)?)
+        }
+        "save_debrief" => {
+            let d = debrief::save(&db.lock().unwrap(), args)?;
+            format!(
+                "Saved: \"{}\", {} threads over {} videos. Next, if you're talking with the user, show_videos without ids.",
+                d.headline,
+                d.threads.len(),
+                d.video_ids.len()
+            )
         }
         other => bail!("unknown tool {other}"),
     })
 }
 
+fn card_state(status: &str) -> &'static str {
+    match status {
+        "done" => "done",
+        "error" => "failed",
+        "passed" => "passed",
+        _ => "new",
+    }
+}
+
+/// The debrief as markdown, with the titles of the videos each thread runs through.
+fn debrief_markdown(d: &debrief::Debrief, videos: &[db::Video]) -> String {
+    let mut md = format!("## {}\n\n{}\n\n", d.headline, d.summary);
+    for t in &d.threads {
+        let titles: Vec<&str> = t
+            .video_ids
+            .iter()
+            .filter_map(|id| videos.iter().find(|v| &v.id == id))
+            .map(|v| v.title.as_str())
+            .collect();
+        md.push_str(&format!("**{}** {}", t.title, t.text));
+        if !titles.is_empty() {
+            md.push_str(&format!(" ({})", titles.join("; ")));
+        }
+        md.push_str("\n\n");
+    }
+    md
+}
+
 /// `show_videos`: cards (`structuredContent`, rendered by CARDS_HTML) for hosts with MCP Apps, and
-/// the same content as markdown for the rest.
+/// the same content as markdown for the rest. Without ids it's the last week's brief, or the
+/// latest analyzed videos when the week has none.
 fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
     let conn = db.lock().unwrap();
     let settings = db::get_settings(&conn)?;
+    let min_relevance = args["min_relevance"].as_i64().unwrap_or(0);
+    let mut days = None;
     let mut videos: Vec<db::Video> = match args["video_ids"].as_array() {
         Some(ids) if !ids.is_empty() => ids
             .iter()
             .filter_map(Value::as_str)
             .filter_map(|id| db::video(&conn, id).transpose())
             .collect::<Result<_>>()?,
-        _ => db::analyzed(
-            &conn,
-            None,
-            args["min_relevance"].as_i64().unwrap_or(0),
-            args["limit"].as_i64().unwrap_or(10).clamp(1, 50),
-        )?,
+        _ => {
+            let mut week = db::week(
+                &conn,
+                debrief::DAYS,
+                false,
+                args["limit"]
+                    .as_i64()
+                    .unwrap_or(debrief::MAX_VIDEOS)
+                    .clamp(1, debrief::MAX_VIDEOS),
+            )?;
+            week.retain(|v| v.relevance.unwrap_or(0) >= min_relevance);
+            if week.is_empty() {
+                db::analyzed(
+                    &conn,
+                    None,
+                    min_relevance,
+                    args["limit"].as_i64().unwrap_or(10).clamp(1, 50),
+                )?
+            } else {
+                days = Some(debrief::DAYS);
+                week
+            }
+        }
     };
+    let debrief =
+        debrief::stored(&conn)?.filter(|d| videos.iter().any(|v| d.video_ids.contains(&v.id)));
     drop(conn);
     if videos.is_empty() {
         bail!("none of these videos are in tx");
@@ -464,6 +535,7 @@ fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
     let mut cards = Vec::new();
     let mut md = String::new();
     for v in &videos {
+        let state = card_state(&v.status);
         let p = report::parts(v.analysis.as_deref().unwrap_or_default());
         // Podcast timestamps open the audio file at that second (a media fragment).
         let at_url = |at: &Option<String>| {
@@ -517,18 +589,31 @@ fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
                 }
                 md.push('\n');
             }
-            _ => md.push_str(&format!("{} · not analyzed yet\n\n", meta.join(" · "))),
+            _ => md.push_str(&format!(
+                "{} · {}\n\n",
+                meta.join(" · "),
+                match (state, &v.error) {
+                    ("failed", Some(e)) => format!("couldn't be analyzed: {e}"),
+                    ("passed", Some(e)) => format!("passed: {e}"),
+                    _ => "not analyzed yet".into(),
+                }
+            )),
         }
-        cards.push(json!({
+        let mut card = json!({
             "id": v.id, "title": v.title, "channel": v.channel, "url": page, "published": v.published,
-            "podcast": v.podcast, "length": length,
+            "podcast": v.podcast, "length": length, "state": state,
             "thumbnail": if v.podcast { v.image.clone() } else { Some(format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", v.id)) },
             "analyzed": v.status == "done", "relevance": v.relevance, "verdict": v.verdict, "tldr": p.tldr,
             "takeaways": p.takeaways.iter().map(|t| json!({ "text": t.text, "at": t.at, "url": at_url(&t.at) })).collect::<Vec<_>>(),
             "advice": p.advice, "skim_from": p.skim_from, "skim_to": p.skim_to, "skim_url": at_url(&p.skim_from),
             "reason": p.reason,
-        }));
+        });
+        if matches!(state, "failed" | "passed") {
+            card["error"] = json!(v.error);
+        }
+        cards.push(card);
     }
+    let debrief_md = debrief.as_ref().map(|d| debrief_markdown(d, &videos));
     let text = if ui {
         let list: Vec<String> = videos
             .iter()
@@ -542,18 +627,33 @@ fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
                 )
             })
             .collect();
+        let shown = match &debrief {
+            Some(d) => format!(
+                " with the debrief on top (\"{}\"), so don't restate it either",
+                d.headline
+            ),
+            None => String::new(),
+        };
         format!(
-            "The user now sees these {} videos as cards with thumbnails, scores, TL;DRs and timestamped takeaways. \
+            "The user now sees these {} videos as cards with thumbnails, scores, TL;DRs and timestamped takeaways{shown}. \
              Don't repeat them; add at most two sentences (for example, which to watch first).\n\n{}",
             videos.len(),
             list.join("\n")
         )
     } else {
-        format!("Show the user this markdown as is, then add at most two sentences:\n\n{md}")
+        format!(
+            "Show the user this markdown as is, then add at most two sentences:\n\n{}{md}",
+            debrief_md.unwrap_or_default()
+        )
     };
+    let mut structured =
+        json!({ "videos": cards, "profile": settings.profile, "debrief": debrief });
+    if let Some(days) = days {
+        structured["days"] = json!(days);
+    }
     Ok(json!({
         "content": [{ "type": "text", "text": text }],
-        "structuredContent": { "videos": cards, "profile": settings.profile },
+        "structuredContent": structured,
     }))
 }
 

@@ -157,8 +157,9 @@ Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/s
 | `save_analysis` / `skip_video` / `pass_video` | store the agent's score, verdict, TL;DR, takeaways and watch advice; retry later; or pass on an off-profile episode without transcribing it |
 | `recent_videos` | a channel's latest uploads, including ones from before you watched it |
 | `feed` | recently analyzed videos |
-| `show_videos` | your brief: videos and episodes grouped Watch / Skim / Skip, each with a timeline of where the value is, TL;DR and takeaways that jump to the moment ([MCP App](https://modelcontextprotocol.io/extensions/apps/overview)); markdown in apps without MCP Apps |
-| `write_digest` | markdown digest + notification |
+| `show_videos` | your brief: the last 7 days of uploads from what you follow, with a debrief across them written by your agent, then videos and episodes grouped Watch / Skim / Skip, each with a timeline of where the value is, TL;DR and takeaways that jump to the moment ([MCP App](https://modelcontextprotocol.io/extensions/apps/overview)); markdown in apps without MCP Apps. With ids it shows just those |
+| `write_digest` | markdown digest + notification; asks your agent for a debrief when the week's analyzed videos changed |
+| `save_debrief` | store your agent's debrief across the last 7 days' analyzed videos (headline, summary, threads) |
 
 Only uploads published after you start watching a channel are screened automatically, so adding a channel doesn't trigger a backlog.
 
