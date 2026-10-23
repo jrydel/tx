@@ -34,8 +34,8 @@ export interface LandingProps {
   /** Header controls (full screen). */
   actions: ReactNode
   open: (id: string) => void
-  /** The narrated show over the picks, when there's anything to play. */
-  watch?: { seconds: number; clips: number; start: () => void }
+  /** The reel over the picks, when there's anything to play. */
+  watch?: { seconds: number; videos: number; start: () => void }
 }
 
 /**
@@ -70,7 +70,7 @@ export function Landing({ data, loc, actions, open, watch }: LandingProps) {
               Watch your debrief
             </Button>
             <span className="text-[12.5px] text-muted-foreground tabular-nums">
-              {span(watch.seconds)} · {plural(watch.clips, "clip")}, narrated
+              {watch.seconds < 60 ? `${Math.round(watch.seconds)} s` : `${Math.floor(watch.seconds / 60)} min ${Math.round(watch.seconds % 60)} s`} · {plural(watch.videos, "video")}
             </span>
           </div>
         )}

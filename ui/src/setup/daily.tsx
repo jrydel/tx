@@ -1,5 +1,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
+import { CardContent, CardFooter } from "@/components/ui/card"
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { followedSummary, type SetupCtx } from "./ctx"
@@ -20,25 +22,27 @@ export function DailyStep({ ctx }: { ctx: SetupCtx }) {
 
   return (
     <>
-      <Hint lead>It runs on this computer, even when this app is closed.</Hint>
-      {!data.can_schedule && (
-        <Hint>This needs Claude Code or Codex installed. You can still ask for your brief here any time.</Hint>
-      )}
-      <div className="mt-3 flex flex-wrap items-center gap-2.5 group-data-compact/setup:mt-2.5">
-        <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Time" className="w-auto" />
+      <CardContent className="grid gap-3">
+        {!data.can_schedule && <Hint className="m-0">This needs Claude Code or Codex installed. You can still ask for your brief here any time.</Hint>}
+        <Field>
+          <FieldLabel htmlFor="brief-time">Every morning at</FieldLabel>
+          <Input id="brief-time" type="time" value={time} onChange={(e) => setTime(e.target.value)} className="h-10 w-36! text-[15px]" />
+          {!data.daily_brief && (
+            <FieldDescription>
+              tx checks {what}, your AI screens what's new, and a notification tells you what's worth your time.
+            </FieldDescription>
+          )}
+        </Field>
+      </CardContent>
+      <CardFooter className="justify-end gap-2.5">
+        <Button variant="ghost" className="text-muted-foreground" onClick={() => ctx.setStep("done")}>
+          Not now
+        </Button>
         <Button onClick={turnOn} disabled={!data.can_schedule || saving}>
           {saving && <Spinner data-icon="inline-start" />}
           Turn on daily brief
         </Button>
-        <Button variant="ghost" className="font-semibold text-muted-foreground" onClick={() => ctx.setStep("done")}>
-          Not now
-        </Button>
-      </div>
-      {!data.daily_brief && (
-        <Hint className="mt-3">
-          Tomorrow at {at}, tx checks {what}, your AI screens what's new, and a notification tells you what's worth your time.
-        </Hint>
-      )}
+      </CardFooter>
     </>
   )
 }

@@ -45,10 +45,20 @@ export interface Debrief {
   script?: Script | null
 }
 
-/** A narrated show over the week: the intro, then for each clip a line and the stretch to play, then the outro. */
+/** A reel over the week: the intro, then for each clip a line over the fast-forwarded stretch and its key moment, then the outro. */
 export interface Script {
   intro: string
-  clips: { video_id: string; from: string; to: string; start: number; end: number; say: string }[]
+  clips: {
+    video_id: string
+    from: string
+    to: string
+    start: number
+    end: number
+    say: string
+    /** The few seconds where the point is said, played at normal speed with sound. */
+    moment_start?: number | null
+    moment_end?: number | null
+  }[]
   outro?: string | null
 }
 

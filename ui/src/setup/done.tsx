@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { CardContent, CardFooter } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
 import { callTool, textOf } from "@/host"
@@ -77,31 +78,30 @@ export function DoneStep({ ctx }: { ctx: SetupCtx }) {
 
   return (
     <>
-      {phase.kind === "screening" ? (
-        <div className="grid gap-2" role="status">
-          <Progress value={((phase.total - Math.min(phase.left, phase.total)) / phase.total) * 100} aria-label="Screening progress" />
-          <p className="m-0 flex items-center gap-2 text-[13.5px] text-muted-foreground">
-            <Spinner />
-            Your AI is screening {phase.left === 1 ? "1 new video" : `${phase.left} new videos`}. This takes a few minutes; it keeps going if you close this.
-          </p>
-        </div>
-      ) : phase.kind === "empty" ? (
-        <Hint className="mb-0">
-          Nothing to show yet{phase.message ? `: ${phase.message.replace(/[.\s]+$/, "")}` : ""}. Paste a video link in the chat and I'll give you a TL;DR.
-        </Hint>
-      ) : (
-        <Hint lead className="mb-0">
-          Ask for your brief any time, or paste any video link for a TL;DR.
-        </Hint>
-      )}
-
+      <CardContent>
+        {phase.kind === "screening" ? (
+          <div className="grid gap-2.5" role="status">
+            <Progress value={((phase.total - Math.min(phase.left, phase.total)) / phase.total) * 100} aria-label="Screening progress" />
+            <p className="m-0 flex items-center gap-2 text-[13.5px] text-muted-foreground">
+              <Spinner />
+              Your AI is screening {phase.left === 1 ? "1 new video" : `${phase.left} new videos`}. This takes a few minutes; it keeps going if you close this.
+            </p>
+          </div>
+        ) : phase.kind === "empty" ? (
+          <Hint className="mb-0">
+            Nothing to show yet{phase.message ? `: ${phase.message.replace(/[.\s]+$/, "")}` : ""}. Paste a video link in the chat and I'll give you a TL;DR.
+          </Hint>
+        ) : (
+          <Hint className="mb-0">Your AI screens what's new and shows your brief here. Ask for it any time, or paste any video link for a TL;DR.</Hint>
+        )}
+      </CardContent>
       {phase.kind !== "screening" && (
-        <div className="mt-3 flex flex-wrap items-center gap-2.5 group-data-compact/setup:mt-2.5">
+        <CardFooter className="justify-end">
           <Button onClick={start} disabled={busy}>
             {busy && <Spinner data-icon="inline-start" />}
             {phase.kind === "empty" ? "Try again" : "Show my first brief"}
           </Button>
-        </div>
+        </CardFooter>
       )}
     </>
   )

@@ -37,6 +37,24 @@
 @utility reel-unseen {
   background-image: repeating-linear-gradient(-45deg, color-mix(in oklab, var(--fresh) 45%, transparent) 0 2px, transparent 2px 6px);
 }
+/* The reel: each caption piece pops in; with no player, the thumbnail drifts so the frame still moves. */
+@keyframes word-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+@utility reel-word {
+  animation: word-in 180ms ease-out both;
+}
+@keyframes pan {
+  to {
+    transform: scale(1.18) translateX(-4%);
+  }
+}
+@utility reel-pan {
+  animation: pan 9s ease-in-out both;
+}
 
 @theme inline {
   --color-background: var(--background);

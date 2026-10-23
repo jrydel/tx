@@ -11,11 +11,11 @@ import { FollowStep } from "./follow"
 import { DailyStep } from "./daily"
 import { DoneStep } from "./done"
 
-/** One box per question, in this order. */
-const STEPS: ["about" | "follow" | "daily", string][] = [
-  ["about", "What do you want to learn?"],
-  ["follow", "What should tx follow?"],
-  ["daily", "A brief every morning?"],
+/** One card per question, in this order: the question, and what the answer is used for. */
+const STEPS: ["about" | "follow" | "daily", string, string][] = [
+  ["about", "What do you want to learn?", "Every video and episode is scored against this. Name your role, the topics you care about and what to skip."],
+  ["follow", "What should tx follow?", "Only what you follow gets analyzed. Search for a channel or podcast; you can add more later."],
+  ["daily", "A brief every morning?", "It runs on this computer, even when this app is closed."],
 ]
 
 /** Setup: three questions in their own boxes, then done. Opens at the first unanswered one. */
@@ -88,32 +88,44 @@ export function Setup({ initial, onBrief }: { initial: OnboardingData; onBrief: 
   const summary = { about: data.profile.trim(), follow: followedSummary(data), daily: data.daily_brief ? "On" : "" }
   const form = { about: <AboutStep ctx={ctx} />, follow: <FollowStep ctx={ctx} />, daily: <DailyStep ctx={ctx} /> }
 
+  // Full screen (Codex's side panel) has room: a centered column with air around it. Inline it's the same, tighter.
+  const wide = host.displayMode === "fullscreen"
   return (
-    <div
-      ref={panel}
-      className={cn(
-        "group/setup thin flex min-h-0 flex-col gap-2 overflow-y-auto *:shrink-0 group-data-compact/setup:gap-1.5",
-        step === "follow" && "min-h-[min(calc(var(--app-h)-4px),480px)]"
-      )}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 pb-0.5">
-        <b className="text-[15px] font-bold">Set up tx</b>
-        <div className="flex items-center gap-3">
-          <span className="text-[12.5px] text-faint group-data-compact/setup:hidden">Three questions, then your first brief</span>
+    <div ref={panel} className={cn("group/setup thin flex min-h-0 flex-col overflow-y-auto", step === "follow" && "h-[calc(var(--app-h)-4px)]")}>
+      <div
+        className={cn(
+          "mx-auto flex w-full max-w-[760px] flex-1 flex-col *:shrink-0 group-data-compact/setup:gap-1.5",
+          wide ? "gap-3 px-6 pt-8 pb-10 group-data-compact/setup:px-4 group-data-compact/setup:pt-4 group-data-compact/setup:pb-4" : "gap-2.5 p-0.5"
+        )}
+      >
+        <header className={cn("flex items-start justify-between gap-4 px-1", wide && "mb-3 group-data-compact/setup:mb-1")}>
+          <div>
+            <h1 className={cn("m-0 font-semibold tracking-[-.015em]", wide ? "text-[24px] group-data-compact/setup:text-[18px]" : "text-[15px]")}>Set up tx</h1>
+            <p className="m-0 mt-0.5 text-[13.5px] text-muted-foreground group-data-compact/setup:hidden">Three questions, then your first brief.</p>
+          </div>
           <ExpandButton />
-        </div>
-      </div>
+        </header>
 
-      {STEPS.map(([id, question], i) => (
-        <StepBox key={id} n={i + 1} title={question} open={step === id} done={done[id]} summary={summary[id]} onOpen={() => setStep(id)} grow={id === "follow"}>
-          {form[id]}
-        </StepBox>
-      ))}
-      {step === "done" && (
-        <StepBox title="You're set" open done>
-          <DoneStep ctx={ctx} />
-        </StepBox>
-      )}
+        {STEPS.map(([id, question, why], i) => (
+          <StepBox
+            key={id}
+            n={i + 1}
+            title={question}
+            description={why}
+            open={step === id}
+            done={done[id]}
+            summary={summary[id]}
+            onOpen={() => setStep(id)}
+            grow={id === "follow"}
+          >
+            {form[id]}
+          </StepBox>
+        ))}
+        {step === "done" && (
+          <StepBox title="You're set" open done>
+            <DoneStep ctx={ctx} />
+          </StepBox>
+        )}
 
       {error && (
         <Alert variant="destructive" className="mt-3">
@@ -128,6 +140,7 @@ export function Setup({ initial, onBrief }: { initial: OnboardingData; onBrief: 
           </AlertDescription>
         </Alert>
       )}
+      </div>
     </div>
   )
 }

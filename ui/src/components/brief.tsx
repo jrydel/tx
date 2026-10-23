@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ExpandButton, ExtLink, GROUPS, Thumb, kindColor, kindOf, type Kind } from "@/components/bits"
 import { Landing } from "@/components/landing"
-import { Show, showLength, showOf } from "@/components/show"
+import { Show, reelSeconds, showOf } from "@/components/show"
 import { cn } from "@/lib/utils"
 import { released, secs, type Locale } from "@/lib/format"
 import { sendMessage, useHost } from "@/host"
@@ -71,7 +71,7 @@ export function Brief({ data }: { data: BriefData }) {
           loc={loc}
           actions={<ExpandButton />}
           open={(id) => go({ kind: "video", id })}
-          watch={show ? { seconds: showLength(show), clips: show.clips.length, start: () => go({ kind: "show" }) } : undefined}
+          watch={show ? { seconds: reelSeconds(show), videos: show.clips.length, start: () => go({ kind: "show" }) } : undefined}
         />
       )}
     </div>

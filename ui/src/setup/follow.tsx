@@ -2,6 +2,7 @@ import { useState } from "react"
 import { SparklesIcon, XIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { CardContent, CardFooter } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
@@ -105,115 +106,121 @@ export function FollowStep({ ctx }: { ctx: SetupCtx }) {
     </div>
   )
 
-  const actions = (
-    <div className="mt-2.5 flex flex-wrap items-center gap-2.5">
-      {candidates.length > 0 && (
-        <Button onClick={followTicked} disabled={!picked.length || saving}>
-          {saving && <Spinner data-icon="inline-start" />}
-          Follow {picked.length}
+  const footer = (
+    <CardFooter className="flex-wrap justify-between gap-2.5">
+      <div className="flex flex-wrap items-center gap-2">
+        {!watching.length && <span className="text-[13px] text-faint">Follow at least one to continue.</span>}
+        {data.channels.length > 0 && !showImport && (
+          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setShowImport(true)}>
+            Import subscriptions
+          </Button>
+        )}
+      </div>
+      <div className="ml-auto flex items-center gap-2.5">
+        <Button variant={candidates.length ? "outline" : "default"} disabled={!watching.length} onClick={() => ctx.setStep("daily")}>
+          Continue
         </Button>
-      )}
-      <Button variant={candidates.length ? "outline" : "default"} disabled={!watching.length} onClick={() => ctx.setStep("daily")}>
-        Continue
-      </Button>
-      {!watching.length && <span className="text-[13px] text-faint">Follow at least one to continue.</span>}
-      {data.channels.length > 0 && !showImport && (
-        <Button variant="ghost" className="font-semibold text-muted-foreground" onClick={() => setShowImport(true)}>
-          Import subscriptions
-        </Button>
-      )}
-    </div>
+        {candidates.length > 0 && (
+          <Button onClick={followTicked} disabled={!picked.length || saving}>
+            {saving && <Spinner data-icon="inline-start" />}
+            Follow {picked.length}
+          </Button>
+        )}
+      </div>
+    </CardFooter>
   )
 
   return (
     <>
-      <Hint lead>Only what you follow gets analyzed. Search for a channel or podcast; you can add more later.</Hint>
-      <SourceSearch channels={data.channels} canSearch={ctx.canTools} onFollow={follow} />
-
-      {watching.length > 0 && (
-        <div className="mt-2.5 flex items-start gap-2">
-          <span className="shrink-0 pt-[3px] text-[11px] font-bold tracking-[.07em] whitespace-nowrap text-faint uppercase">Following {watching.length}</span>
-          <ul className="thin m-0 flex max-h-[54px] min-w-0 flex-1 list-none flex-wrap gap-1.5 overflow-y-auto p-0 group-data-compact/setup:max-h-[28px]">
-            {watching.map((c) => (
-              <li key={c.id}>
-                <Badge variant="secondary" className="h-6 gap-1 pr-0.5 pl-2.5">
-                  <span className="max-w-40 truncate">{c.title}</span>
-                  <button
-                    type="button"
-                    aria-label={`Stop following ${c.title}`}
-                    title={`Stop following ${c.title}`}
-                    onClick={() => unfollow(c.id, c.title)}
-                    className="grid size-4 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-foreground hover:text-card"
-                  >
-                    <XIcon className="size-3" />
-                  </button>
-                </Badge>
-              </li>
-            ))}
-          </ul>
+      <CardContent className="flex min-h-0 flex-1 flex-col *:shrink-0">
+        {/* Its command root is h-full; in a card of definite height that would take all of it. */}
+        <div>
+          <SourceSearch channels={data.channels} canSearch={ctx.canTools} onFollow={follow} />
         </div>
-      )}
 
-      {showImport ? importRow : null}
-      {note && <p className="m-0 mt-2 text-[13px] text-muted-foreground">{note}</p>}
+        {watching.length > 0 && (
+          <div className="mt-3 flex items-start gap-2">
+            <span className="shrink-0 pt-[3px] text-[11px] font-semibold tracking-[.07em] whitespace-nowrap text-faint uppercase">Following {watching.length}</span>
+            <ul className="thin m-0 flex max-h-[58px] min-w-0 flex-1 list-none flex-wrap gap-1.5 overflow-y-auto p-0 group-data-compact/setup:max-h-[28px]">
+              {watching.map((c) => (
+                <li key={c.id}>
+                  <Badge variant="secondary" className="h-6 gap-1 pr-0.5 pl-2.5">
+                    <span className="max-w-40 truncate">{c.title}</span>
+                    <button
+                      type="button"
+                      aria-label={`Stop following ${c.title}`}
+                      title={`Stop following ${c.title}`}
+                      onClick={() => unfollow(c.id, c.title)}
+                      className="grid size-4 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-foreground hover:text-card"
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
-      {candidates.length > 0 && (
-        <div className="mt-2.5 flex min-h-[172px] flex-1 shrink-0 basis-0 flex-col group-data-compact/setup:min-h-[112px]">
-          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-            {suggesting ? (
-              <Hint className="m-0 flex items-center gap-2">
-                <Spinner /> Your AI is reading your list. This takes about 30 seconds.
-              </Hint>
-            ) : picks ? (
-              <Hint className="m-0">Your AI picked {picks} that fit you. Change anything, then follow.</Hint>
-            ) : (
-              <Hint className="m-0">Tick what to follow from your {candidates.length}, or let your AI pick.</Hint>
-            )}
-            <div className="flex items-center gap-2">
-              {!picks && !suggesting && (
-                <Button variant="outline" size="sm" onClick={suggest}>
-                  <SparklesIcon data-icon="inline-start" />
-                  Let your AI pick
-                </Button>
+        {showImport ? importRow : null}
+        {note && <p className="m-0 mt-2.5 text-[13px] text-muted-foreground">{note}</p>}
+
+        {candidates.length > 0 && (
+          <div className="mt-4 flex min-h-[172px] flex-1 shrink-0 basis-0 flex-col group-data-compact/setup:mt-2.5 group-data-compact/setup:min-h-[112px]">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+              {suggesting ? (
+                <Hint className="m-0 flex items-center gap-2">
+                  <Spinner /> Your AI is reading your list. This takes about 30 seconds.
+                </Hint>
+              ) : picks ? (
+                <Hint className="m-0">Your AI picked {picks} that fit you. Change anything, then follow.</Hint>
+              ) : (
+                <Hint className="m-0">Tick what to follow from your {candidates.length}, or let your AI pick.</Hint>
               )}
-              <Input
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder={`Filter ${candidates.length}`}
-                aria-label="Filter channels and shows"
-                className="h-7 w-40 px-2.5 text-[13px]"
-              />
+              <div className="flex items-center gap-2">
+                {!picks && !suggesting && (
+                  <Button variant="outline" size="sm" onClick={suggest}>
+                    <SparklesIcon data-icon="inline-start" />
+                    Let your AI pick
+                  </Button>
+                )}
+                <Input
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder={`Filter ${candidates.length}`}
+                  aria-label="Filter channels and shows"
+                  className="h-8 w-44 px-2.5 text-[13px]"
+                />
+              </div>
+            </div>
+            <div className="thin mt-2.5 min-h-24 flex-1 overflow-y-auto rounded-lg ring-1 ring-foreground/10">
+              {candidates.map((c) => (
+                <label
+                  key={c.id}
+                  hidden={!!q && !c.title.toLowerCase().includes(q)}
+                  className="grid cursor-pointer grid-cols-[18px_1fr_auto] items-start gap-3 border-t px-3.5 py-2.5 first:border-t-0 hover:bg-muted/60 has-data-[state=checked]:bg-muted/40 group-data-compact/setup:py-2"
+                >
+                  <Checkbox
+                    checked={isPicked(c)}
+                    aria-label={c.title}
+                    className="mt-[3px]"
+                    onCheckedChange={(v) => setOverrides((m) => new Map(m).set(c.id, v === true))}
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[14px] font-medium">
+                      {c.suggested && <span className="mr-1.5 text-[11px] font-bold tracking-[.05em] text-watch uppercase">Pick</span>}
+                      {c.title}
+                    </span>
+                    {c.why && <span className="block text-[12.5px] text-muted-foreground">{c.why}</span>}
+                  </span>
+                  <span className="pt-0.5 text-[11px] font-semibold tracking-[.05em] text-faint uppercase">{c.podcast ? "Podcast" : "YouTube"}</span>
+                </label>
+              ))}
             </div>
           </div>
-          <div className="thin mt-2 min-h-24 flex-1 overflow-y-auto rounded-lg border">
-            {candidates.map((c) => (
-              <label
-                key={c.id}
-                hidden={!!q && !c.title.toLowerCase().includes(q)}
-                className="grid cursor-pointer grid-cols-[18px_1fr_auto] items-start gap-2.5 border-t px-[11px] py-2 first:border-t-0 hover:bg-muted"
-              >
-                <Checkbox
-                  checked={isPicked(c)}
-                  aria-label={c.title}
-                  className="mt-[3px]"
-                  onCheckedChange={(v) => setOverrides((m) => new Map(m).set(c.id, v === true))}
-                />
-                <span className="min-w-0">
-                  <span className="block truncate text-[13.5px] font-semibold">
-                    {c.suggested && <span className="mr-1.5 text-[11px] font-bold tracking-[.05em] text-watch uppercase">Pick</span>}
-                    {c.title}
-                  </span>
-                  {c.why && <span className="block text-[12.5px] text-muted-foreground">{c.why}</span>}
-                </span>
-                <span className="text-[11px] font-semibold tracking-[.05em] text-faint uppercase">{c.podcast ? "Podcast" : "YouTube"}</span>
-              </label>
-            ))}
-          </div>
-          {actions}
-        </div>
-      )}
-
-      {candidates.length === 0 && actions}
+        )}
+      </CardContent>
+      {footer}
     </>
   )
 }
