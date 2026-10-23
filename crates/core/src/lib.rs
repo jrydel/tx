@@ -10,5 +10,6 @@ pub mod feeds;
 pub mod paths;
 pub mod podcasts;
 pub mod report;
+pub mod tts;
 pub mod whisper;
 pub mod ytdlp;

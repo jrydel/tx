@@ -3,16 +3,18 @@
 
 use crate::guide;
 use anyhow::{Context, Result, anyhow, bail};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use chrono::SecondsFormat;
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tx_core::captions::Transcript;
 use tx_core::db::{self, Db};
 use tx_core::debrief;
 use tx_core::report::{self, AgentAnalysis};
-use tx_core::{captions, feeds, podcasts, ytdlp};
+use tx_core::{captions, feeds, podcasts, tts, ytdlp};
 
 /// Transcript parts stay under typical MCP tool-output limits (~25k tokens).
 const PART_CHARS: usize = 60_000;
@@ -70,6 +72,14 @@ fn tools() -> Value {
           "_meta": { "ui": { "visibility": ["app"] } } },
         { "name": "screen_now", "description": "Check for new uploads and have the user's AI analyze them in the background (for the setup panel's first brief).",
           "inputSchema": { "type": "object", "properties": {} },
+          "_meta": { "ui": { "visibility": ["app"] } } },
+        { "name": "video_stream", "description": "A direct, playable URL of a YouTube video (picture and sound in one file) for the debrief video's <video> element (for the view).",
+          "inputSchema": { "type": "object", "properties": { "video_id": { "type": "string", "description": "YouTube video id" } }, "required": ["video_id"] },
+          "_meta": { "ui": { "visibility": ["app"] } } },
+        { "name": "narrate", "description": "Speak a line in the narrator's voice (Piper, on this computer; downloaded on first use) as a WAV (for the debrief video's view).",
+          "inputSchema": { "type": "object", "properties": {
+            "text": { "type": "string", "maxLength": 400 },
+            "lang": { "type": "string", "enum": ["en", "cs"], "default": "en" } }, "required": ["text"] },
           "_meta": { "ui": { "visibility": ["app"] } } },
         { "name": "get_profile", "description": "Who the user is and what they want to learn, plus the score that counts as worth their time.",
           "inputSchema": { "type": "object", "properties": {} } },
@@ -714,15 +724,16 @@ async fn handle(db: &Db, session: &mut Session, msg: &Value) -> Option<Value> {
         ] })),
         "resources/read" if params["uri"] == CARDS_URI => {
             // Podcast artwork lives on each show's own host; allow the hosts of watched shows.
-            // Video thumbnails, channel avatars (setup search), and Apple's podcast artwork.
+            // Video thumbnails, channel avatars (setup search), and Apple's podcast artwork; video
+            // streams from Google's CDN (media-src), and the narration audio as blob:/data: URLs.
             let mut hosts: Vec<String> = [
                 "https://i.ytimg.com",
                 "https://yt3.ggpht.com",
                 "https://yt3.googleusercontent.com",
                 "https://*.mzstatic.com",
-                // The YouTube IFrame API script and player assets.
-                "https://www.youtube.com",
-                "https://s.ytimg.com",
+                "https://*.googlevideo.com",
+                "blob:",
+                "data:",
             ]
             .map(String::from)
             .to_vec();
@@ -740,7 +751,6 @@ async fn handle(db: &Db, session: &mut Session, msg: &Value) -> Option<Value> {
                 "uri": CARDS_URI, "mimeType": CARDS_MIME, "text": CARDS_HTML,
                 "_meta": { "ui": { "csp": {
                     "resourceDomains": hosts,
-                    "frameDomains": ["https://www.youtube.com", "https://www.youtube-nocookie.com"],
                 }, "prefersBorder": false } },
             }] }))
         }
@@ -818,24 +828,82 @@ async fn handle(db: &Db, session: &mut Session, msg: &Value) -> Option<Value> {
     })
 }
 
+/// The view's media tools. A first call downloads yt-dlp or the voice and a call can take seconds,
+/// so `serve` runs them beside other requests: the view asks for a video URL and narration lines
+/// at once.
+const MEDIA_TOOLS: [&str; 2] = ["video_stream", "narrate"];
+
+async fn media(name: &str, args: &Value) -> Result<Value> {
+    let (text, structured) = match name {
+        "video_stream" => {
+            let s = ytdlp::stream(str_arg(args, "video_id")?).await?;
+            let expires_at = s.expires_at.to_rfc3339_opts(SecondsFormat::Secs, true);
+            (
+                format!("{} ({}p, valid until {expires_at})", s.url, s.height),
+                json!({ "url": s.url, "mime": s.mime, "height": s.height, "expires_at": expires_at }),
+            )
+        }
+        _ => {
+            let lang = args["lang"].as_str().unwrap_or("en");
+            let n = tts::narrate(str_arg(args, "text")?, lang).await?;
+            (
+                format!("{:.1} s of narration", n.ms as f64 / 1000.0),
+                json!({ "audio": STANDARD.encode(&n.wav), "ms": n.ms }),
+            )
+        }
+    };
+    Ok(json!({ "content": [{ "type": "text", "text": text }], "structuredContent": structured }))
+}
+
+async fn send(out: &tokio::sync::Mutex<tokio::io::Stdout>, reply: &Value) -> Result<()> {
+    let mut out = out.lock().await;
+    out.write_all(format!("{reply}\n").as_bytes()).await?;
+    out.flush().await?;
+    Ok(())
+}
+
 pub async fn serve() -> Result<()> {
     let db: Db = Mutex::new(db::connect()?);
     let mut session = Session::default();
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
-    let mut out = tokio::io::stdout();
+    let out = Arc::new(tokio::sync::Mutex::new(tokio::io::stdout()));
     while let Some(line) = lines.next_line().await? {
         if line.trim().is_empty() {
             continue;
         }
         let reply = match serde_json::from_str::<Value>(&line) {
-            Ok(msg) => handle(&db, &mut session, &msg).await,
+            Ok(msg) => {
+                let params = &msg["params"];
+                match (params["name"].as_str(), msg.get("id")) {
+                    (Some(name), Some(id))
+                        if msg["method"] == "tools/call" && MEDIA_TOOLS.contains(&name) =>
+                    {
+                        let (id, name, args, out) = (
+                            id.clone(),
+                            name.to_string(),
+                            params["arguments"].clone(),
+                            out.clone(),
+                        );
+                        tokio::spawn(async move {
+                            let result = media(&name, &args).await.unwrap_or_else(|e| {
+                                json!({ "content": [{ "type": "text", "text": format!("{e:#}") }], "isError": true })
+                            });
+                            let reply = json!({ "jsonrpc": "2.0", "id": id, "result": result });
+                            if let Err(e) = send(&out, &reply).await {
+                                eprintln!("tx mcp: can't reply: {e}");
+                            }
+                        });
+                        continue;
+                    }
+                    _ => handle(&db, &mut session, &msg).await,
+                }
+            }
             Err(e) => Some(
                 json!({ "jsonrpc": "2.0", "id": null, "error": { "code": -32700, "message": e.to_string() } }),
             ),
         };
         if let Some(r) = reply {
-            out.write_all(format!("{r}\n").as_bytes()).await?;
-            out.flush().await?;
+            send(&out, &r).await?;
         }
     }
     Ok(())

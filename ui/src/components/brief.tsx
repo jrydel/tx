@@ -63,7 +63,7 @@ export function Brief({ data }: { data: BriefData }) {
   return (
     <div ref={scroller} className="thin @container min-h-0 flex-1 overflow-y-auto rounded-xl border bg-card">
       {what?.kind === "show" && watching?.chapters.length ? (
-        <Show show={watching} loc={loc} onClose={() => go(null)} />
+        <Show show={watching} canTools={host.canCallTools} onClose={() => go(null)} />
       ) : video ? (
         <div className="mx-auto max-w-[860px] px-4 pt-3 pb-8 @min-[900px]:px-6">
           <div className="mb-4 flex items-center justify-between gap-3">

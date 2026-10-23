@@ -2,10 +2,13 @@
 
 use crate::captions::{Seg, Transcript, parse_json3, parse_vtt};
 use crate::paths;
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
+use chrono::{DateTime, TimeDelta, Utc};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::sync::{LazyLock, Mutex};
 
 /// A tool tx needs: the bundled/installed copy, or (standalone `tx` CLI) the official build,
 /// downloaded into the data dir on first use.
@@ -255,6 +258,82 @@ pub async fn load(
     Ok((t, path))
 }
 
+/// A direct URL of a YouTube video's file on Google's CDN, with picture and sound in one file
+/// (for a `<video>` element).
+#[derive(Clone)]
+pub struct Stream {
+    pub url: String,
+    pub mime: &'static str,
+    pub height: u64,
+    pub expires_at: DateTime<Utc>,
+}
+
+/// Progressive formats only: 18 (360p MP4), else the best that has both picture and sound.
+const STREAM_FORMAT: &str =
+    "18/best[vcodec!=none][acodec!=none][ext=mp4]/best[vcodec!=none][acodec!=none]";
+/// A cached URL is replaced this long before it expires, so a video that starts now plays through.
+const STREAM_MARGIN: TimeDelta = TimeDelta::minutes(30);
+static STREAMS: LazyLock<Mutex<HashMap<String, Stream>>> = LazyLock::new(Default::default);
+
+/// Playable URL for a YouTube video id, from yt-dlp; kept until shortly before it expires.
+pub async fn stream(video_id: &str) -> Result<Stream> {
+    ensure!(
+        !video_id.is_empty()
+            && video_id.len() <= 32
+            && video_id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
+        "not a YouTube video id: {video_id:?}"
+    );
+    let fresh = |s: &Stream| s.expires_at - STREAM_MARGIN > Utc::now();
+    if let Some(s) = STREAMS.lock().unwrap().get(video_id).filter(|s| fresh(s)) {
+        return Ok(s.clone());
+    }
+    let out = run(vec![
+        "--no-playlist".into(),
+        "-f".into(),
+        STREAM_FORMAT.into(),
+        "--print".into(),
+        "%(url)s\t%(height)s\t%(ext)s".into(),
+        format!("https://www.youtube.com/watch?v={video_id}").into(),
+    ])
+    .await?;
+    let out = String::from_utf8_lossy(&out);
+    let mut cols = out.lines().next().unwrap_or_default().split('\t');
+    let url = cols
+        .next()
+        .filter(|u| u.starts_with("https://"))
+        .context("yt-dlp found no playable stream")?
+        .to_string();
+    let height = cols.next().and_then(|h| h.parse().ok()).unwrap_or(0);
+    let mime = if cols.next() == Some("webm") {
+        "video/webm"
+    } else {
+        "video/mp4"
+    };
+    let expires_at = expires_at(&url).context("the stream URL has no expiry")?;
+    let stream = Stream {
+        url,
+        mime,
+        height,
+        expires_at,
+    };
+    let mut streams = STREAMS.lock().unwrap();
+    streams.retain(|_, s| fresh(s));
+    streams.insert(video_id.to_string(), stream.clone());
+    Ok(stream)
+}
+
+/// The `expire=` (Unix seconds) query parameter of a Google video URL.
+pub fn expires_at(url: &str) -> Option<DateTime<Utc>> {
+    let secs = url
+        .split_once('?')?
+        .1
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("expire="))?;
+    DateTime::from_timestamp(secs.parse().ok()?, 0)
+}
+
 /// Official standalone builds for this platform, as named in the projects' GitHub releases.
 const YT_DLP_ASSET: &str = if cfg!(windows) {
     "yt-dlp.exe"
@@ -308,7 +387,7 @@ pub async fn keep_current() -> Result<Option<String>> {
 
 #[cfg(test)]
 mod tests {
-    use super::pick_track;
+    use super::{expires_at, pick_track};
 
     #[test]
     fn pick_track_prefers_original_over_translated_and_skips_live_chat() {
@@ -323,5 +402,23 @@ mod tests {
             Some("fr-orig")
         );
         assert_eq!(pick_track(&["live_chat"], &en), None);
+    }
+
+    #[test]
+    fn stream_expiry_comes_from_the_expire_parameter() {
+        let url = "https://rr3---sn-4g5e6nsl.googlevideo.com/videoplayback?expire=1761234567&ei=abc&id=o-1&itag=18";
+        assert_eq!(
+            expires_at(url).unwrap().to_rfc3339(),
+            "2025-10-23T15:49:27+00:00"
+        );
+        assert_eq!(
+            expires_at("https://x.googlevideo.com/videoplayback?ei=a&expire=60")
+                .unwrap()
+                .timestamp(),
+            60
+        );
+        assert!(expires_at("https://x.googlevideo.com/videoplayback?ei=abc").is_none());
+        assert!(expires_at("https://x.googlevideo.com/videoplayback?expire=soon").is_none());
+        assert!(expires_at("https://x.googlevideo.com/expire/1761234567/").is_none());
     }
 }

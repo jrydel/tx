@@ -163,11 +163,13 @@ Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/s
 
 Only uploads published after you start watching a channel are screened automatically, so adding a channel doesn't trigger a backlog.
 
+The narrated debrief video plays inside the app: the view gets each YouTube video's file straight from Google's servers (`video_stream`, through yt-dlp) and the narrator's voice from [Piper](https://github.com/rhasspy/piper), which speaks on your computer (`narrate`). Both tools are for the view, not the agent. The first narration downloads Piper (about 26 MB) and a voice (about 63 MB, English or Czech) into the data folder.
+
 In apps that support MCP Apps (the Codex app, Claude Desktop, claude.ai), results appear as a brief: a list grouped by Watch, Skim and Skip, with the selected video beside it. Its timeline shades the part worth watching and marks each takeaway; click one to open the video at that moment.
 
 ## Data
 
-A SQLite database and digests in `~/.local/share/tx` (Linux), `~/Library/Application Support/tx` (macOS) or `%LOCALAPPDATA%\tx` (Windows). Transcripts are cached in the OS cache folder.
+A SQLite database and digests in `~/.local/share/tx` (Linux), `~/Library/Application Support/tx` (macOS) or `%LOCALAPPDATA%\tx` (Windows), plus the downloaded narrator voice in its `tts` folder. Transcripts and spoken lines are cached in the OS cache folder.
 
 ## Build from source
 
