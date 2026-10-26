@@ -2,9 +2,10 @@
 //! worth watching, timestamped takeaways, TL;DR and source.
 //!
 //! Pure string rendering. Every transcript and model-written field is untrusted: it is
-//! stripped of escape sequences and control characters before layout, so the only escape
-//! codes in the output are the SGR styles applied here (and none at all when `color` is off).
+//! stripped of escape sequences and control characters before layout. Only our own SGR
+//! styles and validated HTTP(S) OSC 8 links are emitted; both can be disabled independently.
 
+use crate::terminal_links::Links;
 use dialoguer::console::{Style, measure_text_width};
 use std::iter::Peekable;
 use std::str::Chars;
@@ -27,17 +28,19 @@ enum Advice {
 }
 
 /// Render `analysis` of `transcript` for a terminal `width` columns wide (clamped to 40..=120).
-/// With `color` off the result contains no escape codes at all.
+/// With both `color` and `hyperlinks` off the result contains no escape codes.
 pub(crate) fn render(
     transcript: &Transcript,
     analysis: &AgentAnalysis,
     width: usize,
     color: bool,
+    hyperlinks: bool,
 ) -> String {
     let width = width.clamp(MIN_WIDTH, MAX_WIDTH);
     let inner = width - 2 * INDENT;
     let mut v = View {
         color,
+        links: hyperlinks.then(|| Links::new(&transcript.url)).flatten(),
         out: Vec::new(),
     };
 
@@ -121,16 +124,16 @@ pub(crate) fn render(
             v.out.push(format!(
                 "{}{}",
                 " ".repeat(INDENT),
-                v.bar(inner, cells, &acc)
+                v.bar(inner, cells, &acc, dur)
             ));
             let (l, r) = (fmt_time(0.0), fmt_time(dur));
             let gap = inner.saturating_sub(measure_text_width(&l) + measure_text_width(&r));
             v.out.push(format!(
                 "{}{}{}{}",
                 " ".repeat(INDENT),
-                v.st().cyan().apply_to(l),
+                v.st().cyan().apply_to(v.link(l, Some(0.0))),
                 " ".repeat(gap),
-                v.st().cyan().apply_to(r),
+                v.st().cyan().apply_to(v.link(r, Some(dur))),
             ));
         }
         None => v.text(
@@ -147,9 +150,13 @@ pub(crate) fn render(
                 Some(d) => (f.min(d), t.min(d)),
                 None => (f, t),
             };
-            Some(format!("{}–{}", fmt_time(f), fmt_time(t)))
+            Some(format!(
+                "{}–{}",
+                v.link(fmt_time(f), Some(f)),
+                v.link(fmt_time(t), Some(t))
+            ))
         }
-        (Advice::Watch, _) => Some("full video".to_string()),
+        (Advice::Watch, _) => Some(v.link("full video".to_string(), Some(0.0))),
         _ => None,
     };
     let mut head = format!(
@@ -164,7 +171,7 @@ pub(crate) fn render(
     v.text(INDENT, &sanitize(&analysis.watch.reason), inner, &v.st());
 
     // Takeaways: `[mm:ss]` label column with a hanging indent.
-    let takeaways: Vec<(String, String)> = analysis
+    let takeaways: Vec<(String, String, Option<f64>)> = analysis
         .takeaways
         .iter()
         .filter_map(|t| {
@@ -172,22 +179,21 @@ pub(crate) fn render(
             if text.trim().is_empty() {
                 return None;
             }
-            let label =
-                t.at.as_deref()
-                    .and_then(parse_stamp)
-                    .map(|s| format!("[{}]", fmt_time(s)))
-                    .unwrap_or_else(|| "•".to_string());
-            Some((label, text))
+            let at = t.at.as_deref().and_then(parse_stamp);
+            let label = at
+                .map(|s| format!("[{}]", fmt_time(s)))
+                .unwrap_or_else(|| "•".to_string());
+            Some((label, text, at))
         })
         .collect();
     if !takeaways.is_empty() {
         v.section("Takeaways");
         let label_w = takeaways
             .iter()
-            .map(|(l, _)| measure_text_width(l))
+            .map(|(l, _, _)| measure_text_width(l))
             .max()
             .unwrap_or(0);
-        for (label, text) in &takeaways {
+        for (label, text, at) in &takeaways {
             let lines = wrap(text, inner - label_w - 1);
             for (i, line) in lines.iter().enumerate() {
                 let lead = if i == 0 {
@@ -195,7 +201,10 @@ pub(crate) fn render(
                     if label == "•" {
                         format!("{}{pad}", v.dim(label))
                     } else {
-                        format!("{}{pad}", v.st().cyan().apply_to(label))
+                        format!(
+                            "{}{pad}",
+                            v.st().cyan().apply_to(v.link(label.clone(), *at))
+                        )
                     }
                 } else {
                     " ".repeat(label_w)
@@ -221,7 +230,13 @@ pub(crate) fn render(
     if !url.is_empty() || !source.is_empty() {
         v.section("Source");
         if !url.is_empty() {
-            v.text(INDENT, &url, inner, &v.st().cyan().underlined());
+            for line in wrap(&url, inner) {
+                v.out.push(format!(
+                    "{}{}",
+                    " ".repeat(INDENT),
+                    v.st().cyan().underlined().apply_to(v.link(line, None))
+                ));
+            }
         }
         if !source.is_empty() {
             v.text(
@@ -231,6 +246,15 @@ pub(crate) fn render(
                 &v.st().dim(),
             );
         }
+    }
+    if v.links.as_ref().is_some_and(Links::can_seek) {
+        v.blank();
+        v.text(
+            INDENT,
+            "Ctrl/Cmd+click timestamps or timeline to open.",
+            inner,
+            &v.st().dim(),
+        );
     }
 
     v.blank();
@@ -322,10 +346,18 @@ fn parse_stamp(t: &str) -> Option<f64> {
 
 struct View {
     color: bool,
+    links: Option<Links>,
     out: Vec<String>,
 }
 
 impl View {
+    fn link(&self, label: String, at: Option<f64>) -> String {
+        match &self.links {
+            Some(links) => links.wrap(label, at),
+            None => label,
+        }
+    }
+
     /// Fresh style whose colouring is decided by `color` alone, not the environment.
     fn st(&self) -> Style {
         Style::new().force_styling(self.color)
@@ -359,8 +391,31 @@ impl View {
         }
     }
 
-    fn bar(&self, w: usize, cells: Option<(usize, usize)>, accent: &Style) -> String {
+    fn bar(
+        &self,
+        w: usize,
+        cells: Option<(usize, usize)>,
+        accent: &Style,
+        duration: f64,
+    ) -> String {
         let (lo, hi) = cells.map_or((0, 0), |(lo, hi)| (lo.min(w), hi.min(w)));
+        if self.links.as_ref().is_some_and(Links::can_seek) {
+            let mut bar = String::new();
+            for cell in 0..w {
+                let highlighted = cell >= lo && cell < hi;
+                let style = if highlighted {
+                    accent.clone()
+                } else {
+                    self.st().dim()
+                };
+                let glyph = if highlighted { FILL } else { TRACK };
+                bar.push_str(&self.link(
+                    style.apply_to(glyph).to_string(),
+                    Some(duration * cell as f64 / w as f64),
+                ));
+            }
+            return bar;
+        }
         let run = |n: usize, ch: char, st: Style| {
             if n == 0 {
                 String::new()
@@ -631,7 +686,7 @@ mod tests {
         a.takeaways[0].text = evil.into();
         a.takeaways[0].at = Some(evil.into());
         for color in [false, true] {
-            let out = render(&t, &a, 60, color);
+            let out = render(&t, &a, 60, color, true);
             assert_only_sgr(&out);
             if !color {
                 assert!(!out.contains('\u{1b}'));
@@ -657,8 +712,8 @@ mod tests {
             transcript(Some(100.0)),
             analysis("skim", Some("00:10"), Some("00:20")),
         );
-        assert!(!render(&t, &a, 80, false).contains('\u{1b}'));
-        let colored = render(&t, &a, 80, true);
+        assert!(!render(&t, &a, 80, false, false).contains('\u{1b}'));
+        let colored = render(&t, &a, 80, true, false);
         assert!(colored.contains('\u{1b}'));
         assert_only_sgr(&colored);
     }
@@ -673,7 +728,7 @@ mod tests {
         a.watch.reason = format!("😀 {}", "x".repeat(200));
         a.takeaways[0].text = "multi word ".repeat(30);
         for (asked, effective) in [(5, 40), (40, 40), (47, 47), (80, 80), (500, 120)] {
-            let out = render(&t, &a, asked, false);
+            let out = render(&t, &a, asked, false, false);
             for line in out.lines() {
                 let w = measure_text_width(line);
                 assert!(w <= effective, "{w} > {effective}: {line:?}");
@@ -702,7 +757,7 @@ mod tests {
             Some(f64::NAN),
             Some(f64::INFINITY),
         ] {
-            let out = render(&transcript(d), &a, 70, false);
+            let out = render(&transcript(d), &a, 70, false, false);
             assert!(!out.contains(TRACK) && !out.contains(FILL), "{d:?}");
             assert!(out.contains("01:00–02:00"), "range still stated for {d:?}");
         }
@@ -718,19 +773,21 @@ mod tests {
             &analysis("skim", Some("00:25"), Some("01:15")),
             80,
             false,
+            false,
         );
         let bar = bar_line(&skim).trim();
         assert_eq!(measure_text_width(bar), w);
         assert_eq!(count(bar, FILL), w / 2);
         assert_eq!(bar.chars().position(|c| c == FILL), Some(w / 4));
 
-        let watch = render(&t, &analysis("watch", None, None), 80, false);
+        let watch = render(&t, &analysis("watch", None, None), 80, false, false);
         assert_eq!(count(bar_line(&watch), FILL), w);
 
         let skip = render(
             &t,
             &analysis("skip", Some("00:10"), Some("00:20")),
             80,
+            false,
             false,
         );
         assert_eq!(count(bar_line(&skip), FILL), 0);
@@ -741,7 +798,7 @@ mod tests {
             (Some("00:30"), Some("00:30")),
             (Some("02:00"), Some("01:00")),
         ] {
-            let out = render(&t, &analysis("skim", f, to), 80, false);
+            let out = render(&t, &analysis("skim", f, to), 80, false, false);
             assert_eq!(count(bar_line(&out), FILL), 0);
         }
     }
@@ -785,8 +842,59 @@ mod tests {
         let mut a = analysis("watch", None, None);
         a.takeaways[0].at = Some("not a time".into());
         a.takeaways[1].text = "   ".into();
-        let out = render(&transcript(Some(100.0)), &a, 70, false);
+        let out = render(&transcript(Some(100.0)), &a, 70, false, false);
         assert!(out.contains("First point"));
         assert!(!out.contains("not a time"));
+    }
+
+    #[test]
+    fn clickable_sections_open_the_corresponding_video_time() {
+        let mut t = transcript(Some(100.0));
+        t.url = "https://www.youtube.com/watch?v=abc&t=1s".into();
+        let a = analysis("skim", Some("00:25"), Some("01:15"));
+        let out = render(&t, &a, 80, true, true);
+        let links: Vec<_> = out
+            .split("\x1b]8;;")
+            .skip(1)
+            .filter_map(|part| part.split_once("\x1b\\"))
+            .filter(|(url, _)| !url.is_empty())
+            .map(|(url, label)| (url, sanitize(label)))
+            .collect();
+        for (label, seconds) in [("[01:05]", 65), ("00:25", 25), ("01:15", 75)] {
+            assert!(
+                links.iter().any(|(url, text)| {
+                    text == label
+                        && *url == format!("https://www.youtube.com/watch?v=abc&t={seconds}s")
+                }),
+                "{label} did not target {seconds}s"
+            );
+        }
+        let cells: Vec<_> = links
+            .iter()
+            .filter(|(_, label)| label == "░" || label == "█")
+            .collect();
+        assert_eq!(cells.len(), 76);
+        assert_eq!(cells[0].0, "https://www.youtube.com/watch?v=abc&t=0s");
+        assert_eq!(cells[38].0, "https://www.youtube.com/watch?v=abc&t=50s");
+        assert_eq!(cells[75].0, "https://www.youtube.com/watch?v=abc&t=98s");
+        for line in out.lines() {
+            assert!(measure_text_width(&sanitize(line)) <= 80);
+        }
+    }
+
+    #[test]
+    fn hyperlink_policy_is_independent_of_color_and_rejects_model_escape_injection() {
+        let mut t = transcript(None);
+        t.url = "https://youtu.be/abc".into();
+        let mut a = analysis("skim", Some("01:00"), Some("02:00"));
+        a.takeaways[0].text = "\x1b]8;;https://evil.test\x07injected\x1b]8;;\x07".into();
+        let linked = render(&t, &a, 80, false, true);
+        assert!(linked.contains("\x1b]8;;https://www.youtube.com/watch?v=abc&t=65s"));
+        assert!(!linked.contains("\x1b["));
+        assert!(!linked.contains("evil.test"));
+        assert!(!linked.contains(TRACK));
+        assert!(linked.contains("injected"));
+        assert!(!render(&t, &a, 80, true, false).contains("\x1b]8;;"));
+        assert!(!render(&t, &a, 80, false, false).contains('\x1b'));
     }
 }

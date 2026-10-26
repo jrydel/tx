@@ -60,6 +60,10 @@ tx "https://www.youtube.com/watch?v=USeyDcWyVCc" -g codex -q "As a software engi
 
 The result includes a 0–5 relevance score, a WATCH / SKIM / SKIP verdict, timestamped takeaways, and a TL;DR. A timeline is shown when the source provides a duration. This is a text view, not an embedded video player.
 
+**Click to watch:** in a terminal that supports OSC 8 hyperlinks, Ctrl+click a takeaway timestamp, either end of the recommended watch range, or a position on the timeline to open that moment in your browser. In iTerm2 on macOS, use Cmd+click. The links remain usable after tx exits.
+
+Timestamp links use known URL conventions for YouTube, Vimeo, Twitch VODs, Dailymotion, and direct media files. Playback still depends on the source being accessible and its player honoring the offset. Other sites keep a clickable source URL without pretending to support seeking.
+
 ### 3. Save takeaways to your own notes
 
 Use `-a` for a free-form answer and `>` to save it:
@@ -114,6 +118,7 @@ In this table, replace `URL` with a quoted video or episode link.
 
 - Reviews are colorized in an interactive terminal; redirected output is plain text.
 - Use `-C always` with `-q` to force colors for a recording, or `-C never` to disable them. `NO_COLOR=1` and `TERM=dumb` disable automatic colors.
+- Clickable links are independent of color: `NO_COLOR` and `-C never` can still leave links active. Links are omitted from pipes/files and when `TERM=dumb`; forcing color does not force links into saved output.
 - Transcripts are cached. Asking another question about the same URL reuses the transcript but runs a fresh AI analysis. `-r` bypasses the transcript cache.
 - If captions are unavailable, tx downloads the audio and transcribes it locally with [Whisper](https://github.com/ggml-org/whisper.cpp). The first use downloads the model; long recordings take longer than captioned videos.
 - `-q` cannot be combined with `-a`, `-c`, or `-T` (omit transcript timestamps).
@@ -222,6 +227,7 @@ tx digest --dir "$HOME/Library/Mobile Documents/com~apple~CloudDocs/tx"
 | Model rejected | Use a model your provider accepts, or omit the model suffix to use its default |
 | Nothing prints while saving a note | `>` redirects the answer into the file; wait for the command to finish, then open the file |
 | A link requires login or reports DRM | That link cannot be processed by the current invocation; do not assume all links on the platform work |
+| Timestamps do not open when clicked | Use Ctrl+click (Cmd+click in iTerm2), in an OSC 8-capable terminal. Unsupported terminals still show readable text; try outside tmux/screen if they strip links |
 | Want the latest version | Rerun the installer above, then check `tx --version` |
 
 ## MCP tools

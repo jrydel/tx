@@ -2607,7 +2607,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tx-cli"
-version = "0.18.1"
+version = "0.18.2"
 dependencies = [
  "anyhow",
  "base64",
@@ -2621,11 +2621,12 @@ dependencies = [
  "tokio",
  "toml_edit",
  "tx-core",
+ "url",
 ]
 
 [[package]]
 name = "tx-core"
-version = "0.18.1"
+version = "0.18.2"
 dependencies = [
  "anyhow",
  "bzip2",

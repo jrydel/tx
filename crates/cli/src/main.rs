@@ -14,6 +14,7 @@ mod onboard;
 mod review;
 mod schedule;
 mod terminal;
+mod terminal_links;
 
 #[derive(Parser)]
 #[command(
@@ -322,7 +323,10 @@ async fn run(cli: Cli) -> Result<i32> {
                     && std::env::var("TERM").as_deref() != Ok("dumb")
             }
         };
-        std::io::stdout().write_all(terminal::render(&t, &analysis, width, color).as_bytes())?;
+        let hyperlinks =
+            std::io::stdout().is_terminal() && std::env::var("TERM").as_deref() != Ok("dumb");
+        std::io::stdout()
+            .write_all(terminal::render(&t, &analysis, width, color, hyperlinks).as_bytes())?;
         return Ok(0);
     }
 
