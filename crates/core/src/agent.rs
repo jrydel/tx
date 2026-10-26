@@ -22,17 +22,17 @@ fn last_chars(text: &str, n: usize) -> String {
     text.chars().skip(skip).collect()
 }
 
-/// `$TX_AGENT <prompt>` with `stdin` piped in, calling `on_text` with each piece of the answer as
-/// it is generated. Claude Code streams token deltas (`--output-format stream-json`); any other
-/// agent streams stdout lines. Returns the full answer.
+/// Run the resolved agent command with `stdin` piped in, calling `on_text` with each
+/// piece of the answer. Claude Code streams token deltas (`--output-format stream-json`);
+/// other agents stream stdout lines. Returns the full answer.
 pub async fn ask_stream(
     prompt: &str,
     stdin: &str,
+    selected: (PathBuf, Vec<String>),
     mut on_text: impl FnMut(&str) + Send,
 ) -> Result<String> {
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
-    let (program, mut args) =
-        command("TX_AGENT", "claude -p").context("Claude Code (claude) is not installed")?;
+    let (program, mut args) = selected;
     let claude = program
         .file_stem()
         .is_some_and(|s| s.to_string_lossy().starts_with("claude"));

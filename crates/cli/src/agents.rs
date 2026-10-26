@@ -52,6 +52,113 @@ impl Agent {
     }
 }
 
+/// Explicit agent for a single-video request, optionally with a model name.
+#[derive(Clone, Debug)]
+pub(crate) struct Selection {
+    agent: Agent,
+    model: Option<String>,
+}
+
+impl std::str::FromStr for Selection {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        let (name, model) = match value.split_once(':') {
+            Some((name, model)) => {
+                if model.is_empty()
+                    || model.starts_with('-')
+                    || model.chars().any(char::is_whitespace)
+                {
+                    return Err(
+                        "model must be a nonempty name without whitespace or a leading '-'".into(),
+                    );
+                }
+                (name, Some(model.to_string()))
+            }
+            None => (value, None),
+        };
+        let agent = match name {
+            "codex" => Agent::Codex,
+            "claude" => Agent::Claude,
+            _ => return Err("expected codex[:MODEL] or claude[:MODEL]".into()),
+        };
+        Ok(Self { agent, model })
+    }
+}
+
+impl Selection {
+    /// Explicit flag wins over the environment; otherwise use the existing detection order.
+    pub(crate) fn resolve(
+        selected: Option<&Self>,
+        interactive: bool,
+    ) -> Result<(PathBuf, Vec<String>)> {
+        if let Some(selected) = selected {
+            return selected.command(interactive);
+        }
+        let key = if interactive {
+            "TX_CHAT_AGENT"
+        } else {
+            "TX_AGENT"
+        };
+        if std::env::var_os(key).is_some() {
+            return tx_core::agent::command(key, "")
+                .with_context(|| format!("{key} does not name an installed agent"));
+        }
+        Self {
+            agent: Agent::detect()?,
+            model: None,
+        }
+        .command(interactive)
+    }
+
+    pub(crate) fn command(&self, interactive: bool) -> Result<(PathBuf, Vec<String>)> {
+        let program = self
+            .agent
+            .find()
+            .with_context(|| format!("{} is not installed", self.agent.program()))?;
+        let mut args = if interactive {
+            Vec::new()
+        } else {
+            match self.agent {
+                Agent::Claude => vec!["-p".into()],
+                Agent::Codex => vec!["exec".into(), "--skip-git-repo-check".into()],
+            }
+        };
+        if let Some(model) = &self.model {
+            args.extend(["--model".into(), model.clone()]);
+        }
+        Ok((program, args))
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    #[test]
+    fn agent_names_and_model_boundary_are_unambiguous() {
+        let codex: Selection = "codex".parse().unwrap();
+        assert_eq!(codex.agent, Agent::Codex);
+        assert!(codex.model.is_none());
+        let claude: Selection = "claude:haiku".parse().unwrap();
+        assert_eq!(claude.agent, Agent::Claude);
+        assert_eq!(claude.model.as_deref(), Some("haiku"));
+        let named: Selection = "codex:provider/model:variant".parse().unwrap();
+        assert_eq!(named.model.as_deref(), Some("provider/model:variant"));
+        for bad in [
+            "",
+            "unknown",
+            ":haiku",
+            "codex:",
+            "claude:--help",
+            "codex:two models",
+            "codex:\n",
+        ] {
+            assert!(bad.parse::<Selection>().is_err(), "{bad:?}");
+        }
+    }
+}
+
 /// The screen-videos skill, minus its frontmatter.
 const SKILL: &str = include_str!("../../../plugin/skills/screen-videos/SKILL.md");
 

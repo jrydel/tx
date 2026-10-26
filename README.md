@@ -130,8 +130,9 @@ Follow-up questions are just a normal conversation with your AI: "in the Gemini 
 |---|---|
 | `tx "https://youtu.be/VIDEO_ID"` | transcript in your pager, `[mm:ss]` paragraphs |
 | `tx URL -a "what does he say about pricing?"` | one-shot answer from your agent, streamed as it's written |
-| `tx URL --review "I'm a software engineer. Should I care, and what should I watch?"` | colored relevance verdict, watch timeline, and timestamped takeaways from your agent |
-| `tx URL -c` | interactive Claude session on the transcript |
+| `tx URL -q` | colored worth-watching review with the default question and detected agent |
+| `tx URL -q "What matters to a software engineer?" -g codex` | personalized terminal review using Codex |
+| `tx URL -c -g claude:haiku` | interactive Claude session using Haiku |
 | `tx URL \| llm "summarize"` | pipe the transcript anywhere |
 | `tx run` | one screening pass now |
 | `tx digest` | digest of everything analyzed since the last one |
@@ -141,13 +142,26 @@ Transcripts are cached, so asking more questions about the same video only waits
 ### A video review in your terminal
 
 ```sh
-TX_AGENT="codex exec" tx "https://www.youtube.com/watch?v=USeyDcWyVCc" \
-  --review "I'm a software engineer. Should I care about this video? Which parts should I watch, and why?"
+tx "https://www.youtube.com/watch?v=USeyDcWyVCc" -g codex \
+  -q "I'm a software engineer. Should I care about this video? Which parts should I watch, and why?"
 ```
 
-`--review` uses your configured `TX_AGENT` (default `claude -p`), with the same analysis fields as the AI-app panel: a 0–5 relevance score, verdict, skip/skim/watch advice, a proportional timeline, timestamped takeaways, and a TL;DR. It uses the cached transcript when available and asks the agent for a fresh review of your question. It does not follow the channel or save a new analysis to your brief.
+No app setup or environment variable is required for this workflow—just an installed, signed-in Codex CLI or Claude Code. `-q` / `--review` shows a 0–5 relevance score, colored verdict, skip/skim/watch advice, proportional timeline, timestamped takeaways, and a TL;DR. Use `tx URL -q` for the default question: “Is this video worth watching? Which parts should I watch, and why?” Put the URL first when omitting the optional question.
 
-Colors are automatic in an interactive terminal; redirected output is plain text. `NO_COLOR=1` or `TERM=dumb` disables automatic colors. Use `--color always` to preserve ANSI colors in a recording, or `--color never` to disable them explicitly. The layout adapts between 40 and 120 columns. This is a text view—not the embedded video player.
+Agent selection for `-q`, `-a`, and `-c`:
+
+| Argument | Behavior |
+|---|---|
+| `-g codex` / `--agent codex` | Codex CLI, with its configured default model |
+| `-g codex:MODEL` | Pass `MODEL` to Codex's `--model` option |
+| `-g claude:haiku` | Claude Code with Haiku |
+| no `-g` | Use `TX_AGENT` (`TX_CHAT_AGENT` for `-c`) if set; otherwise detect Claude first, then Codex |
+
+The explicit `-g` flag overrides environment settings. Model names pass through unchanged; tx does not create aliases or guarantee availability (for example, `codex:luna` works only if your Codex accepts `luna`). `-m` / `--model` still selects the local Whisper transcription model, not the agent model.
+
+The review reuses a cached transcript when available and asks for a fresh analysis of your question. It does not follow the channel or save a new analysis to your brief. `-q` cannot be combined with `-a`, `-c`, or `-T`.
+
+Colors default to `auto` in an interactive terminal; redirected output is plain text. `NO_COLOR=1` or `TERM=dumb` disables automatic colors. Use `-C always` / `--color always` for recordings, or `-C never` to disable colors explicitly. The layout adapts between 40 and 120 columns. This is a text view—not the embedded video player. Existing MCP/chat-app integrations remain available separately.
 
 `-a` remains a streamed free-form answer; `-c` remains an interactive agent session. The analysis runs through your own agent subscription; that agent may send the transcript to its cloud service.
 

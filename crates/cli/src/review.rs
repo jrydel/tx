@@ -7,6 +7,7 @@ pub(crate) async fn analyze(
     t: &Transcript,
     transcript: &str,
     question: &str,
+    selected: (std::path::PathBuf, Vec<String>),
 ) -> Result<AgentAnalysis> {
     ensure!(
         !question.trim().is_empty(),
@@ -35,7 +36,7 @@ range within the video. For skip/watch, set from and to to null. Takeaway at is 
 or null if no precise source moment can be identified. Seconds (and h:mm:ss minutes) are 00-59.
 All timestamps must be within the known video duration. No ANSI escapes or terminal control codes."#
     );
-    let answer = agent::ask_stream(&prompt, transcript, |_| {}).await?;
+    let answer = agent::ask_stream(&prompt, transcript, selected, |_| {}).await?;
     parse(&answer, t.duration)
 }
 

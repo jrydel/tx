@@ -1,7 +1,7 @@
 //! `tx`: a video's transcript in your terminal, or ask your agent about it.
 #![recursion_limit = "256"]
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::io::{IsTerminal, Write};
 use std::process::{ExitCode, Stdio};
@@ -20,25 +20,29 @@ mod terminal;
     name = "tx",
     version,
     about = "Print a video's transcript (any yt-dlp-supported URL), or ask an agent about it.",
-    args_conflicts_with_subcommands = true
+    args_conflicts_with_subcommands = true,
+    group(clap::ArgGroup::new("analysis_mode").args(["ask", "review", "chat"]))
 )]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
     /// Video URL (YouTube, X, Vimeo, TikTok, …)
     url: Option<String>,
-    /// One-shot question to $TX_AGENT (default: claude -p)
+    /// Stream a free-form answer from the selected or detected agent
     #[arg(short, long, value_name = "QUESTION", conflicts_with = "chat")]
     ask: Option<String>,
-    /// Review relevance and watch moments in a colored terminal view using $TX_AGENT
-    #[arg(long, value_name = "QUESTION", requires = "url", conflicts_with_all = ["ask", "chat"])]
+    /// Colored video review; omit QUESTION for the default worth-watching assessment
+    #[arg(short = 'q', long, num_args = 0..=1, default_missing_value = "Is this video worth watching? Which parts should I watch, and why?", value_name = "QUESTION", requires = "url", conflicts_with_all = ["ask", "chat", "no_timestamps"])]
     review: Option<String>,
     /// Color for --review (auto respects NO_COLOR and redirected output)
-    #[arg(long, value_enum, default_value_t = ReviewColor::Auto, requires = "review")]
+    #[arg(short = 'C', long, value_enum, default_value_t = ReviewColor::Auto, requires = "review")]
     color: ReviewColor,
-    /// Interactive $TX_CHAT_AGENT (default: claude) session on the transcript
+    /// Interactive session with the selected or detected agent on the transcript
     #[arg(short, long)]
     chat: bool,
+    /// Agent and optional model: codex[:MODEL] or claude[:MODEL]; overrides TX_AGENT/TX_CHAT_AGENT
+    #[arg(short = 'g', long, value_name = "AGENT[:MODEL]", requires_all = ["url", "analysis_mode"])]
+    agent: Option<agents::Selection>,
     /// Caption/audio language code, e.g. en, cs (default: video language, then en)
     #[arg(short, long)]
     lang: Option<String>,
@@ -303,7 +307,8 @@ async fn run(cli: Cli) -> Result<i32> {
 
     if let Some(question) = cli.review {
         eprintln!("tx: transcript ready, reviewing with your agent…");
-        let analysis = review::analyze(&t, &text, &question).await?;
+        let selected = agents::Selection::resolve(cli.agent.as_ref(), false)?;
+        let analysis = review::analyze(&t, &text, &question, selected).await?;
         let term = dialoguer::console::Term::stdout();
         let width = term
             .size_checked()
@@ -332,7 +337,8 @@ async fn run(cli: Cli) -> Result<i32> {
         // Print the answer as it is written instead of all at once at the end.
         let mut out = std::io::stdout();
         let mut printed = false;
-        let answer = agent::ask_stream(&prompt, &text, |piece| {
+        let selected = agents::Selection::resolve(cli.agent.as_ref(), false)?;
+        let answer = agent::ask_stream(&prompt, &text, selected, |piece| {
             printed = true;
             let _ = out.write_all(piece.as_bytes());
             let _ = out.flush();
@@ -347,8 +353,7 @@ async fn run(cli: Cli) -> Result<i32> {
     if cli.chat {
         let md = cache_path.with_extension("md");
         std::fs::write(&md, &text)?;
-        let (program, args) = agent::command("TX_CHAT_AGENT", "claude")
-            .context("Claude Code (claude) is not installed")?;
+        let (program, args) = agents::Selection::resolve(cli.agent.as_ref(), true)?;
         let prompt = format!(
             "Read the transcript of the video \"{}\" at {}. Reply with a 5-bullet summary, then answer my questions from it, citing [mm:ss] timestamps.",
             t.title,
