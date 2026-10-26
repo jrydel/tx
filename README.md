@@ -130,12 +130,28 @@ Follow-up questions are just a normal conversation with your AI: "in the Gemini 
 |---|---|
 | `tx "https://youtu.be/VIDEO_ID"` | transcript in your pager, `[mm:ss]` paragraphs |
 | `tx URL -a "what does he say about pricing?"` | one-shot answer from your agent, streamed as it's written |
+| `tx URL --review "I'm a software engineer. Should I care, and what should I watch?"` | colored relevance verdict, watch timeline, and timestamped takeaways from your agent |
 | `tx URL -c` | interactive Claude session on the transcript |
 | `tx URL \| llm "summarize"` | pipe the transcript anywhere |
 | `tx run` | one screening pass now |
 | `tx digest` | digest of everything analyzed since the last one |
 
 Transcripts are cached, so asking more questions about the same video only waits for the agent's answer. `-r` fetches the transcript again.
+
+### A video review in your terminal
+
+```sh
+TX_AGENT="codex exec" tx "https://www.youtube.com/watch?v=USeyDcWyVCc" \
+  --review "I'm a software engineer. Should I care about this video? Which parts should I watch, and why?"
+```
+
+`--review` uses your configured `TX_AGENT` (default `claude -p`), with the same analysis fields as the AI-app panel: a 0–5 relevance score, verdict, skip/skim/watch advice, a proportional timeline, timestamped takeaways, and a TL;DR. It uses the cached transcript when available and asks the agent for a fresh review of your question. It does not follow the channel or save a new analysis to your brief.
+
+Colors are automatic in an interactive terminal; redirected output is plain text. `NO_COLOR=1` or `TERM=dumb` disables automatic colors. Use `--color always` to preserve ANSI colors in a recording, or `--color never` to disable them explicitly. The layout adapts between 40 and 120 columns. This is a text view—not the embedded video player.
+
+`-a` remains a streamed free-form answer; `-c` remains an interactive agent session. The analysis runs through your own agent subscription; that agent may send the transcript to its cloud service.
+
+When working from source, build with `cargo build -p tx-cli` and substitute `./target/debug/tx` for `tx` above.
 
 Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) site (YouTube, X, Vimeo, TikTok, podcasts…). Videos without captions are transcribed locally with [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`-m tiny|base|small|medium|large-v3-turbo`).
 

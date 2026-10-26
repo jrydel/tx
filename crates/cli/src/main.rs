@@ -11,7 +11,9 @@ mod agents;
 mod guide;
 mod mcp;
 mod onboard;
+mod review;
 mod schedule;
+mod terminal;
 
 #[derive(Parser)]
 #[command(
@@ -28,6 +30,12 @@ struct Cli {
     /// One-shot question to $TX_AGENT (default: claude -p)
     #[arg(short, long, value_name = "QUESTION", conflicts_with = "chat")]
     ask: Option<String>,
+    /// Review relevance and watch moments in a colored terminal view using $TX_AGENT
+    #[arg(long, value_name = "QUESTION", requires = "url", conflicts_with_all = ["ask", "chat"])]
+    review: Option<String>,
+    /// Color for --review (auto respects NO_COLOR and redirected output)
+    #[arg(long, value_enum, default_value_t = ReviewColor::Auto, requires = "review")]
+    color: ReviewColor,
     /// Interactive $TX_CHAT_AGENT (default: claude) session on the transcript
     #[arg(short, long)]
     chat: bool,
@@ -46,6 +54,13 @@ struct Cli {
     /// Ignore the cached transcript
     #[arg(short, long)]
     refresh: bool,
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum ReviewColor {
+    Auto,
+    Always,
+    Never,
 }
 
 #[derive(Subcommand)]
@@ -285,6 +300,26 @@ async fn run(cli: Cli) -> Result<i32> {
     )
     .await?;
     let text = captions::render(&t, !cli.no_timestamps);
+
+    if let Some(question) = cli.review {
+        eprintln!("tx: transcript ready, reviewing with your agent…");
+        let analysis = review::analyze(&t, &text, &question).await?;
+        let term = dialoguer::console::Term::stdout();
+        let width = term
+            .size_checked()
+            .map_or(80, |(_, columns)| usize::from(columns));
+        let color = match cli.color {
+            ReviewColor::Always => true,
+            ReviewColor::Never => false,
+            ReviewColor::Auto => {
+                std::io::stdout().is_terminal()
+                    && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
+                    && std::env::var("TERM").as_deref() != Ok("dumb")
+            }
+        };
+        std::io::stdout().write_all(terminal::render(&t, &analysis, width, color).as_bytes())?;
+        return Ok(0);
+    }
 
     if let Some(question) = cli.ask {
         let prompt = format!(
