@@ -1,173 +1,228 @@
 # tx
 
-Don't watch the video. Read it, then decide.
+**Turn videos and podcasts into knowledge you keep.**
 
-tx watches the YouTube channels and podcasts you pick. Every new video and episode is transcribed and screened against a description of what *you* want to learn: a 0–5 score, a TL;DR, takeaways at their timestamps, and whether it's worth your time at all. Each morning you get a brief of what's worth watching or hearing.
+Paste a link into your terminal. tx gets the transcript, your chosen AI extracts what matters, and you can save the useful takeaways as a file on your own device.
 
-**Your own AI does the thinking, on your existing subscription.** tx runs on your computer and fetches channels and transcripts (on your own internet connection, which YouTube doesn't block). Claude Code, Claude Desktop or Codex (ChatGPT) reads them and writes the analysis. No accounts, no servers, no API keys, no cost beyond the subscription you already have.
+- **Decide what to watch:** a colored verdict, relevance score, recommended watch ranges, and timestamped takeaways.
+- **Ask your own question:** focus the analysis on your work or interests.
+- **Keep what you learn:** save a Markdown note, review it, and add it to your own knowledge base.
 
-Open source under the MIT license. macOS, Linux and Windows.
+Open source, MIT licensed. Runs locally on macOS, Linux, and Windows. No tx account or hosted tx service; AI analysis uses your installed agent and its account.
 
-## TL;DR: get it running
+## Quick start
 
-You need the **Codex** (ChatGPT) or **Claude** app, signed in.
+For analysis, first install and sign in to **[Codex CLI](https://learn.chatgpt.com/docs/codex/cli)** (`codex`) or **[Claude Code](https://code.claude.com/docs/en/quickstart)** (`claude`). You only need one. Fetching a transcript without AI does not require either.
 
-**1.** Open a terminal (on a Mac: <kbd>⌘</kbd> <kbd>Space</kbd>, type *Terminal*, <kbd>Enter</kbd>) and paste:
+### 1. Install
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/jrydel/tx/master/install.sh | sh
-```
-
-On Windows, paste this into PowerShell instead:
-
-```powershell
-irm https://raw.githubusercontent.com/jrydel/tx/master/install.ps1 | iex
-```
-
-**2.** Type `tx` and press <kbd>Enter</kbd>. Answer its four questions (about 2 minutes): which AI app, what you want to learn, what to follow, and whether you want a morning brief.
-
-**3.** Quit your AI app completely, open it again, start a new chat and type:
-
-> Show me my tx brief
-
-That's it. From then on, ask for your brief whenever you like, or paste any video link and say "TL;DR this".
-
-## Get started, in detail
-
-You need **Claude Code**, **Claude Desktop** or **Codex** (the ChatGPT desktop app or CLI), signed in with your subscription.
-
-### 1. Install tx
-
-On macOS (Apple Silicon) or Linux (x86_64), run in a terminal:
+**macOS (Apple Silicon) or Linux (x86_64):**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/jrydel/tx/master/install.sh | sh
 ```
 
-On Windows, run in PowerShell:
+**Windows (x64), in PowerShell:**
 
 ```powershell
 irm https://raw.githubusercontent.com/jrydel/tx/master/install.ps1 | iex
 ```
 
-This installs one `tx` program. Then type `tx` to set it up with you, in four short steps:
+Open a new terminal if the installer added tx to your PATH, then check:
 
-1. **Connect your AI**: the apps it finds (Codex / ChatGPT, Claude Code, Claude Desktop) are pre-ticked.
-2. **About you**: who you are and what you want to learn. Every score is against this.
-3. **What to follow**: import your YouTube subscriptions (your AI pre-picks the ones that fit you), a Google Takeout export, a podcast app's OPML file, or add channels and podcasts by name.
-4. **Daily brief**: every morning new uploads are screened and a notification says what's worth your time.
+```sh
+tx --version
+```
 
-Run `tx onboard` any time to change something, or `tx reset` to start over as a new user (`tx reset --all` also deletes your analyses and transcripts). Once you're set up, `tx` alone shows where you stand. Restart your AI app afterwards so it loads tx.
+The installer prints an optional setup command. **You can skip that setup for the single-link commands below.** No daily brief, plugin, or environment variable is required.
 
-### 2. Use it in your AI app
+### 2. Try a video
 
-Start a new chat. If you skipped setup, say **"Set up tx"** (also in the app's command menu): the Codex app and Claude Desktop show the same steps as a setup panel, with your channels as a checklist.
+Copy this example, then replace the quoted URL with your own:
 
-If tx can't read your browser for the import (it needs to be signed in to YouTube), export your subscriptions instead: at [Google Takeout](https://takeout.google.com) click **Deselect all**, tick **YouTube and YouTube Music**, click **All YouTube data included** and keep only **subscriptions**, then export, download, and import the .zip.
+```sh
+tx "https://www.youtube.com/watch?v=USeyDcWyVCc" -q
+```
 
-Then, whenever you like:
+`-q` asks: **“Is this video worth watching? Which parts should I watch, and why?”** It automatically selects an installed agent: Claude first, then Codex, unless you have configured an environment override.
 
-> Use tx to check my channels for new videos and analyze them for me.
+Prefer Codex explicitly?
 
-Only videos uploaded after you start watching a channel are analyzed automatically, so nothing happens until a channel posts something new. To try it right away:
+```sh
+tx "https://www.youtube.com/watch?v=USeyDcWyVCc" -g codex -q
+```
 
-> Use tx: TL;DR of the latest 3 Fireship videos.
+Or ask a question relevant to you:
 
-**Podcasts** work the same way:
+```sh
+tx "https://www.youtube.com/watch?v=USeyDcWyVCc" -g codex -q "As a software engineer, what matters here?"
+```
+
+The result includes a 0–5 relevance score, a WATCH / SKIM / SKIP verdict, timestamped takeaways, and a TL;DR. A timeline is shown when the source provides a duration. This is a text view, not an embedded video player.
+
+### 3. Save takeaways to your own notes
+
+Use `-a` for a free-form answer and `>` to save it:
+
+```sh
+tx "https://www.youtube.com/watch?v=USeyDcWyVCc" -g codex -a "3 timestamped takeaways as Markdown. Separate claims from evidence. Include the source URL." > video-notes.md
+```
+
+Open the file:
+
+```sh
+cat video-notes.md
+```
+
+The note is saved in your terminal's current folder. `>` replaces an existing file with that name, so choose a new filename for each video you want to keep. The commands above also work in PowerShell.
+
+Review the generated note before moving it into your knowledge base. **tx does not automatically add it to a memory system.** A single-link review also does not follow the channel or add an analysis to your daily brief.
+
+## Terminal reference
+
+In this table, replace `URL` with a quoted video or episode link.
+
+| I want to… | Command |
+| --- | --- |
+| Read the transcript, without AI | `tx URL` |
+| Decide whether to watch | `tx URL -q` |
+| Ask a specific question | `tx URL -a "What should I learn from this?"` |
+| Have an interactive conversation | `tx URL -c -g codex` |
+| Use Claude Haiku | `tx URL -q -g claude:haiku` |
+| Save the transcript | `tx URL > transcript.txt` |
+| Fetch a fresh transcript | `tx URL -r` |
+| Transcribe audio locally instead of using captions | `tx URL -w -m base` |
+| See every option | `tx --help` |
+
+**Keep the URL first.** `-q` takes an optional question; `-a` requires one. Choose one analysis mode per command: `-q`, `-a`, or `-c`. Running `tx` with no URL starts optional onboarding on first use; it is not a video review.
+
+### Choose your AI and model
+
+| Argument | Uses |
+| --- | --- |
+| `-g codex` | Codex with its configured default model |
+| `-g claude` | Claude Code with its configured default model |
+| `-g claude:haiku` | Claude Code with Haiku |
+| `-g codex:MODEL` | The exact model name your Codex installation accepts |
+| No `-g` | `TX_AGENT` if set (`TX_CHAT_AGENT` for `-c`), otherwise Claude first, then Codex |
+
+`-g` / `--agent` overrides the environment settings. You do not need to set `TX_AGENT` or write `codex exec` yourself. Model names pass through unchanged; tx does not create aliases or guarantee that your provider offers a particular model.
+
+**`-m` is different:** it selects the local Whisper transcription model, not the AI that analyzes the transcript. Choices: `tiny`, `base`, `small` (default), `medium`, `large-v3-turbo`.
+
+### Colors, caching, and waiting
+
+- Reviews are colorized in an interactive terminal; redirected output is plain text.
+- Use `-C always` with `-q` to force colors for a recording, or `-C never` to disable them. `NO_COLOR=1` and `TERM=dumb` disable automatic colors.
+- Transcripts are cached. Asking another question about the same URL reuses the transcript but runs a fresh AI analysis. `-r` bypasses the transcript cache.
+- If captions are unavailable, tx downloads the audio and transcribes it locally with [Whisper](https://github.com/ggml-org/whisper.cpp). The first use downloads the model; long recordings take longer than captioned videos.
+- `-q` cannot be combined with `-a`, `-c`, or `-T` (omit transcript timestamps).
+
+## Sources: more than YouTube
+
+tx uses [yt-dlp](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) to handle links from many video and audio sites. It tries platform captions first, then local audio transcription. **An upstream extractor is not a guarantee that every link works.** Authentication, DRM, regional restrictions, and site changes can prevent extraction.
+
+Actual checks with tx 0.18.1 on 2026-10-26:
+
+| Source | What was checked |
+| --- | --- |
+| [YouTube example](https://www.youtube.com/watch?v=USeyDcWyVCc) | Real AI review and local-note workflows using a cached transcript |
+| [InfoQ: Rust talk](https://www.infoq.com/presentations/rust/) | Downloaded and locally transcribed the full 48-minute talk |
+| [Apple Podcasts: 60-Second Tech](https://podcasts.apple.com/us/podcast/smart-keyboard-gets-a-charge-out-of-you/id448935669?i=1000363227999) | Downloaded and locally transcribed a 90-second episode |
+| Vimeo | Tested page required login; public-player attempt failed on a DRM-protected format. Not verified as working |
+
+Other upstream sources include Twitch, X, TikTok, Dailymotion, SoundCloud, and Internet Archive. Those are backend coverage, not additional end-to-end checks. Single-link support does not imply automatic channel-following support on every platform.
+
+## What stays on your device?
+
+Transcript fetching, caching, and Whisper transcription run on your computer. Files you save with `>` stay where you put them, subject to any folder-sync services you use.
+
+**AI analysis is not necessarily local.** Codex or Claude receives the transcript and may send it to its cloud service. Your provider's authentication, plan limits, and usage terms apply. Generated takeaways can be wrong; keep the source and timestamps so you can check them.
+
+## Optional: followed channels and chat apps
+
+You do not need this section to review a link or save a note.
+
+Run `tx onboard` for the guided setup: connect an AI app, describe what you want to learn, choose YouTube channels or podcasts, and decide whether to enable a daily brief. Scheduling is optional. Once configured, `tx` alone shows your status.
+
+Restart your AI app after setup, then ask:
+
+> Show me my tx brief.
+
+To connect only an integration, choose the command for your app:
+
+| App | Command |
+| --- | --- |
+| Codex | `tx setup codex` |
+| Claude Code | `tx setup claude-code` |
+| Claude Desktop | `tx setup claude-desktop` |
+
+Claude Desktop is a chat integration; the terminal analysis commands above need a Codex or Claude Code executable.
+
+<details>
+<summary>Follow channels, import subscriptions, or use plugin marketplaces</summary>
+
+Ask your connected AI:
 
 > Use tx: follow Latent Space and Practical AI.
 
-It finds shows by name in Apple's podcast directory (no account needed) or takes a feed URL. To bring all your shows at once, export an OPML file from your podcast app (Pocket Casts, Overcast, AntennaPod and most others can) and say "import my podcasts from ~/Downloads/podcasts.opml". Many shows publish transcripts, which tx uses as is. Episodes without one are transcribed on your computer, which takes a few minutes for a long episode, so the agent first passes on episodes whose title and show notes clearly don't fit you.
+Podcasts can be found by name through Apple's directory or added by RSS feed URL. Import an OPML export from Pocket Casts, Overcast, AntennaPod, or another podcast app to bring your subscriptions over.
 
-### 3. Optional: change the daily schedule
+YouTube subscriptions can be imported from a signed-in browser or [Google Takeout](https://takeout.google.com): deselect everything, select **YouTube and YouTube Music**, then select only **subscriptions** and export. Give the resulting ZIP to your connected AI.
 
-```sh
-tx schedule --at 07:30
-```
+Only uploads published after you follow a channel are screened automatically. To analyze older material explicitly:
 
-See [Every morning](#every-morning-automatically) for options and reading digests on your phone.
+> Use tx: TL;DR of the latest 3 Fireship videos.
 
-<details>
-<summary>Prefer plugin marketplaces?</summary>
+Published podcast transcripts are used when available. Otherwise episodes are transcribed locally; the agent can pass on an off-profile episode from its title and show notes before transcribing.
 
-Instead of `tx setup`, you can install tx as a plugin (it needs `tx` on the PATH your AI app sees):
+Instead of `tx setup`, you can install the plugin:
 
-- **Codex:** run `codex plugin marketplace add jrydel/tx`, then `codex plugin add tx@tx`
-- **Claude Code:** in a session, run `/plugin marketplace add jrydel/tx`, then `/plugin install tx@tx`
+- **Codex:** `codex plugin marketplace add jrydel/tx`, then `codex plugin add tx@tx`.
+- **Claude Code:** in a session, run `/plugin marketplace add jrydel/tx`, then `/plugin install tx@tx`.
 
-Use either the plugin or `tx setup`, not both.
+Use either the plugin or `tx setup`, not both. The app must be able to find `tx` on its PATH.
+
+Run `tx onboard` to change your setup. `tx reset` starts over; **`tx reset --all` also deletes saved analyses, digests, and cached transcripts.**
+
 </details>
 
 ## Every morning, automatically
 
-Screen new videos every morning at 08:00, with whichever agent is installed:
+After configuring what to follow, run a screening pass with `tx run`, or enable a daily schedule:
 
 ```sh
-tx schedule
+tx schedule --at 08:00
 ```
 
-| Instead | Run |
-|---|---|
-| another time or agent | `tx schedule --at 07:30 --agent codex` |
-| every few hours | `tx schedule --every 3h` |
-| see the schedule | `tx schedule --status` |
-| stop it | `tx schedule --off` |
+| Task | Command |
+| --- | --- |
+| Another time or agent | `tx schedule --at 07:30 --agent codex` |
+| Every few hours | `tx schedule --every 3h` |
+| See the schedule | `tx schedule --status` |
+| Stop it | `tx schedule --off` |
+| Write a digest of new analyses | `tx digest` |
 
-This uses the OS scheduler (a systemd user timer on Linux, a LaunchAgent on macOS, Task Scheduler on Windows) to run `tx run`: your agent checks the watched channels, analyzes new uploads, and tx writes a markdown digest. If something scores at or above your bar (3 by default), you get a desktop notification. Your computer has to be on; a missed run catches up at the next start on Linux and macOS.
+The OS scheduler runs `tx run`: a systemd user timer on Linux, a LaunchAgent on macOS, or Task Scheduler on Windows. Your agent checks followed channels and podcasts; tx writes a Markdown digest and sends a desktop notification if something meets your score threshold (3 by default). Your computer must be on; missed runs catch up at the next start on Linux and macOS.
 
-**Read it on your phone:** point the digests at a synced folder and open them in any notes app.
-
-| Synced folder | Run |
-|---|---|
-| iCloud Drive (Mac) | `tx digest --dir ~/Library/Mobile\ Documents/com~apple~CloudDocs/tx` |
-| OneDrive, Dropbox, Google Drive… | `tx digest --dir ~/OneDrive/tx` (use your sync folder's path) |
-
-Follow-up questions are just a normal conversation with your AI: "in the Gemini video, what exactly did he say about pricing?"
-
-## Terminal
-
-| Command | Does |
-|---|---|
-| `tx "https://youtu.be/VIDEO_ID"` | transcript in your pager, `[mm:ss]` paragraphs |
-| `tx URL -a "what does he say about pricing?"` | one-shot answer from your agent, streamed as it's written |
-| `tx URL -q` | colored worth-watching review with the default question and detected agent |
-| `tx URL -q "What matters to a software engineer?" -g codex` | personalized terminal review using Codex |
-| `tx URL -c -g claude:haiku` | interactive Claude session using Haiku |
-| `tx URL \| llm "summarize"` | pipe the transcript anywhere |
-| `tx run` | one screening pass now |
-| `tx digest` | digest of everything analyzed since the last one |
-
-Transcripts are cached, so asking more questions about the same video only waits for the agent's answer. `-r` fetches the transcript again.
-
-### A video review in your terminal
+To read digests on another device, point them at a folder you already sync. For example, on macOS:
 
 ```sh
-tx "https://www.youtube.com/watch?v=USeyDcWyVCc" -g codex \
-  -q "I'm a software engineer. Should I care about this video? Which parts should I watch, and why?"
+tx digest --dir "$HOME/Library/Mobile Documents/com~apple~CloudDocs/tx"
 ```
 
-No app setup or environment variable is required for this workflow—just an installed, signed-in Codex CLI or Claude Code. `-q` / `--review` shows a 0–5 relevance score, colored verdict, skip/skim/watch advice, proportional timeline, timestamped takeaways, and a TL;DR. Use `tx URL -q` for the default question: “Is this video worth watching? Which parts should I watch, and why?” Put the URL first when omitting the optional question.
+`--dir` changes where future digests are saved. It does not configure a sync service.
 
-Agent selection for `-q`, `-a`, and `-c`:
+## Troubleshooting
 
-| Argument | Behavior |
-|---|---|
-| `-g codex` / `--agent codex` | Codex CLI, with its configured default model |
-| `-g codex:MODEL` | Pass `MODEL` to Codex's `--model` option |
-| `-g claude:haiku` | Claude Code with Haiku |
-| no `-g` | Use `TX_AGENT` (`TX_CHAT_AGENT` for `-c`) if set; otherwise detect Claude first, then Codex |
-
-The explicit `-g` flag overrides environment settings. Model names pass through unchanged; tx does not create aliases or guarantee availability (for example, `codex:luna` works only if your Codex accepts `luna`). `-m` / `--model` still selects the local Whisper transcription model, not the agent model.
-
-The review reuses a cached transcript when available and asks for a fresh analysis of your question. It does not follow the channel or save a new analysis to your brief. `-q` cannot be combined with `-a`, `-c`, or `-T`.
-
-Colors default to `auto` in an interactive terminal; redirected output is plain text. `NO_COLOR=1` or `TERM=dumb` disables automatic colors. Use `-C always` / `--color always` for recordings, or `-C never` to disable colors explicitly. The layout adapts between 40 and 120 columns. This is a text view—not the embedded video player. Existing MCP/chat-app integrations remain available separately.
-
-`-a` remains a streamed free-form answer; `-c` remains an interactive agent session. The analysis runs through your own agent subscription; that agent may send the transcript to its cloud service.
-
-When working from source, build with `cargo build -p tx-cli` and substitute `./target/debug/tx` for `tx` above.
-
-Works with any [yt-dlp-supported](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) site (YouTube, X, Vimeo, TikTok, podcasts…). Videos without captions are transcribed locally with [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`-m tiny|base|small|medium|large-v3-turbo`).
+| Problem | What to do |
+| --- | --- |
+| `tx: command not found` | Open a new terminal after installation; check that the install directory printed by the installer is on your PATH |
+| No agent found, or authentication fails | Install and sign in to Codex CLI or Claude Code; use `-g codex` or `-g claude` to select the one you configured |
+| Model rejected | Use a model your provider accepts, or omit the model suffix to use its default |
+| Nothing prints while saving a note | `>` redirects the answer into the file; wait for the command to finish, then open the file |
+| A link requires login or reports DRM | That link cannot be processed by the current invocation; do not assume all links on the platform work |
+| Want the latest version | Rerun the installer above, then check `tx --version` |
 
 ## MCP tools
 
