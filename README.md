@@ -2,13 +2,24 @@
 
 **Turn videos and podcasts into knowledge you keep.**
 
-Paste a link into your terminal. tx gets the transcript, your chosen AI extracts what matters, and you can save the useful takeaways as a file on your own device.
+tx helps you decide **what is worth watching for you**, not just get a shorter version of a video. Give it a link, compare several videos, or have it screen new uploads from channels and podcasts you follow.
 
-- **Decide what to watch:** a colored verdict, relevance score, recommended watch ranges, and timestamped takeaways.
-- **Ask your own question:** focus the analysis on your work or interests.
-- **Keep what you learn:** save a Markdown note, review it, and add it to your own knowledge base.
+- **Review a link:** get a WATCH / SKIM / SKIP verdict, a relevance score, the part worth watching, and timestamped takeaways.
+- **Choose what to follow:** get a YouTube channel report based on videos selected for your interests.
+- **Keep up without checking every channel:** get a daily brief of new uploads, scored against your profile.
+- **Keep what you learn:** ask your own question and save the answer as a Markdown note.
 
 Open source, MIT licensed. Runs locally on macOS, Linux, and Windows. No tx account or hosted tx service; AI analysis uses your installed agent and its account.
+
+**Start small:** review one video first. If the result is useful, add a profile. Follow a few sources and enable a schedule only if you want an ongoing brief.
+
+## Watch the tutorial
+
+[![Watch the 99-second tx tutorial: install, personalize, review videos, and set up a brief](.github/assets/tx-tutorial.jpg)](https://github.com/jrydel/tx/releases/download/v0.20.0/tx-tutorial.mp4)
+
+**[Watch or download the tutorial (MP4, 99 seconds, 5.7 MiB)](https://github.com/jrydel/tx/releases/download/v0.20.0/tx-tutorial.mp4)** — silent, with on-screen instructions. Uses real tx 0.20.0 review results with an example profile; typing is recreated and waits are shortened. Setup and scheduling scenes show commands to run, not a timer being enabled.
+
+Chapters: **0:00** install · **0:07** add context · **0:21** review one video · **0:44** review several · **0:59** evaluate a channel · **1:13** follow sources · **1:19** screen new uploads · **1:25** optional daily schedule.
 
 ## Quick start
 
@@ -28,13 +39,15 @@ curl -fsSL https://raw.githubusercontent.com/jrydel/tx/master/install.sh | sh
 irm https://raw.githubusercontent.com/jrydel/tx/master/install.ps1 | iex
 ```
 
-Open a new terminal if the installer added tx to your PATH, then check:
+When run in a terminal, the installer starts guided setup: connect your AI apps, describe your interests or learn them from coding-agent sessions, choose what to follow, and optionally enable a daily brief. **For a one-off video review, skip setup with Ctrl+C.** Run `tx onboard` later to return to it. An already-configured installation shows your status instead.
+
+If the installer added tx to your PATH, open a new terminal before running commands. Check the installation:
 
 ```sh
 tx --version
 ```
 
-Run in a terminal, the installer then starts the guided setup (`tx onboard`): your AI apps, what you want to learn (tx can learn it from your coding-agent sessions), what to follow, and a daily brief. If tx is already set up, as when you upgrade, it shows where you stand instead. **You can skip setup with Ctrl+C for the single-link commands below**, or set `TX_NO_SETUP=1` before installing. No daily brief, plugin, or environment variable is required.
+No plugin, daily schedule, or environment variable is required for terminal reviews. To prevent the installer from opening setup, set `TX_NO_SETUP=1` before installing.
 
 ### 2. Try a video
 
@@ -60,6 +73,8 @@ tx "https://www.youtube.com/watch?v=USeyDcWyVCc" -g codex -q "As a software engi
 
 The result includes a 0–5 relevance score, a WATCH / SKIM / SKIP verdict, timestamped takeaways, and a TL;DR. A timeline is shown when the source provides a duration. This is a text view, not an embedded video player. Once tx has learned who you are (`tx learn`), the review is written for you: takeaways name the projects a moment matters for.
 
+The score measures relevance to you, not the video's objective quality. Start with the verdict: **WATCH** means watch it, **SKIM** points you to the useful range, and **SKIP** means it is a low priority for this profile. Check important claims against the linked source.
+
 **Click to watch:** in a terminal that supports OSC 8 hyperlinks, Ctrl+click a takeaway timestamp, either end of the recommended watch range, or a position on the timeline to open that moment in your browser. In iTerm2 on macOS, use Cmd+click. The links remain usable after tx exits.
 
 Timestamp links use known URL conventions for YouTube, Vimeo, Twitch VODs, Dailymotion, and direct media files. Playback still depends on the source being accessible and its player honoring the offset. Other sites keep a clickable source URL without pretending to support seeking.
@@ -82,6 +97,42 @@ The note is saved in your terminal's current folder. `>` replaces an existing fi
 
 Review the generated note before moving it into your knowledge base. **tx does not automatically add it to a memory system.** A single-link review also does not follow the channel or add an analysis to your daily brief.
 
+## Recommended workflow
+
+### Once: give tx enough context to judge relevance
+
+Without a profile, tx judges videos for a curious technical generalist. For personal recommendations, use either:
+
+- **Your own description:** run `tx onboard` and describe your role, current work, what you want to learn, and what to skip. You do not need coding-agent history.
+- **Learn from your work:** run `tx learn`. It uses your own prompts from Claude Code, Codex and Oh My Pi; you approve sending the excerpts and saving the profile. See [what is read and sent](#learn-who-you-are) first.
+
+For example: “I'm a backend engineer building an LLM product. Prioritize agent evaluation, security and deployment. Skip beginner Python and product-launch hype.”
+
+Check a learned profile with `tx learn --show`. Correct your own description through `tx onboard`; it takes precedence over the learned profile. Profiles are used by `-q` reviews, channel reports and followed-source screening. **For `-a` questions and `-c` chats, include relevant personal context in your question or conversation yourself.**
+
+### When you find something: choose the right command
+
+| Situation | Use | What happens to the result |
+| --- | --- | --- |
+| Someone sends you a video | `tx "URL" -q` | Prints a review; does not follow its channel or add it to your brief |
+| You have several tabs to triage | `tx "URL1" "URL2" "URL3" -q` | Reviews concurrently, then prints each review in input order |
+| You are deciding whether to follow a YouTube channel | `tx channel @t3dotgg --top 5` | Prints and saves a channel report; does not follow the channel |
+| You want a reusable note | `tx "URL" -a "Explain the technique with timestamps and the source URL" > note.md` | Saves the answer in your current folder; overwrites that filename if it exists |
+| You want new uploads from sources you already follow | `tx run` | Screens pending uploads and saves results for the brief and digest |
+
+Replace `URL`, `URL1`, etc. with actual links. Use the channel report to decide what to follow, not to transcribe an entire archive. Start with `--top 5`; increase it if you want a broader sample.
+
+### Ongoing: follow a few sources, then decide whether to automate
+
+1. Run `tx onboard` to choose YouTube channels or podcasts. You can decline scheduling and accept the offered first screening to try the brief.
+2. Run `tx run` whenever you want to check for new uploads. It shows progress in your terminal and prints the digest path when one is written.
+3. In a connected AI app, ask **“Show me my tx brief.”** Start with Watch and Skim; use the timestamps instead of watching everything.
+4. If the brief is useful, run `tx schedule --at 08:00`. Stop future scheduled runs with `tx schedule --off`.
+
+The first-screening option can analyze the latest upload from each newly followed source. After that, automatic screening covers uploads published after you followed—not the whole backlog. `tx run` may have nothing new to screen immediately after a completed pass.
+
+You can use the terminal without a chat integration. To read the brief in Codex or Claude, see [connecting your app](#optional-followed-channels-and-chat-apps). Keep the computer on for scheduled runs; your AI app can be closed.
+
 ## Terminal reference
 
 In this table, replace `URL` with a quoted video or episode link.
@@ -91,7 +142,7 @@ In this table, replace `URL` with a quoted video or episode link.
 | Read the transcript, without AI | `tx URL` |
 | Decide whether to watch | `tx URL -q` |
 | Review several links at once | `tx URL URL URL -q` (3 at a time; `-j 5` for more) |
-| Is a whole channel worth following? | `tx channel @t3dotgg` |
+| Decide whether a channel is worth following | `tx channel @t3dotgg` |
 | Ask a specific question | `tx URL -a "What should I learn from this?"` |
 | Have an interactive conversation | `tx URL -c -g codex` |
 | Use Claude Haiku | `tx URL -q -g claude:haiku` |
@@ -102,11 +153,29 @@ In this table, replace `URL` with a quoted video or episode link.
 
 **Keep the URLs first.** `-q` takes an optional question; `-a` requires one. Choose one analysis mode per command: `-q`, `-a`, or `-c`; several links work with `-q`. Running `tx` with no URL starts optional onboarding on first use; it is not a video review.
 
-### Several videos at once
+### Review several videos with live progress
 
-With several links, `tx run` and `tx channel`, tx processes 3 videos at a time and shows each one live: queued, getting its transcript, transcribing (with a percentage), analyzing, then its score and verdict, with a summary line underneath. Local Whisper transcriptions take turns, since each already uses most of your CPU. Every video is its own request to your Claude or Codex plan: more at once finishes sooner but reaches plan limits faster; `-j 1` goes one at a time.
+```sh
+tx "https://www.youtube.com/watch?v=l3L_lETiSzc" "https://www.youtube.com/watch?v=I_KVMFrUtPk" -q
+```
 
-`tx channel @handle` lists every video a YouTube channel has, has your agent pick the 12 that fit you best (`--top 20` for more), analyzes those and writes a report: whether the channel is worth following for you, what to watch first with links to the right moment, what it's about, and what to skip. The report is saved next to your digests; it doesn't add the channel's videos to your brief.
+Each video has a live row: queued → getting its transcript → transcribing, if needed → analyzing → score and verdict. After the batch finishes, tx prints the full reviews. With redirected output or a scheduler, progress becomes plain log lines rather than a live display.
+
+Multi-link reviews, `tx run` and `tx channel` process **3 videos at a time** by default. Use `-j 1` for one at a time, or `-j 5` for five (allowed range: 1–8). Local Whisper transcriptions still take turns to avoid competing for your CPU; downloads and AI analysis can overlap. `-w`, `-m`, `-l` and `-r` also work on multi-link reviews.
+
+Each reviewed video uses a separate request through your installed Claude or Codex account. Higher concurrency can finish sooner but consumes your plan allowance faster; it does not provide extra quota. No separate tx subscription or API key is required. If your agent is configured to use an API key, its API billing still applies.
+
+### Decide whether a YouTube channel is worth following
+
+```sh
+tx channel @t3dotgg --top 5 --agent codex
+```
+
+tx lists the channel's Videos tab, gives your agent metadata for **at most the newest 400 videos**, and asks it to choose those that fit your profile. Only the selected videos are transcribed and analyzed. The default is up to 12 selections; `--top` accepts 1–30. This is a sampled recommendation, **not an analysis of every video**, even when the displayed channel count is larger.
+
+The report answers: worth following for you? What should you watch first? What themes matter to you? What can you skip? It is printed and saved with the individual analyses in a Markdown file next to your digests; tx prints the saved path.
+
+This does not follow the channel or add those analyses to your daily brief. If you like it, run `tx onboard` or ask your connected app: **“Use tx: follow @t3dotgg.”** Channel reports are currently a terminal workflow; the app's recent-video tools are not a whole-catalog search.
 
 ### Choose your AI and model
 
@@ -119,6 +188,8 @@ With several links, `tx run` and `tx channel`, tx processes 3 videos at a time a
 | No `-g` | `TX_AGENT` if set (`TX_CHAT_AGENT` for `-c`), otherwise Claude first, then Codex |
 
 `-g` / `--agent` overrides the environment settings. You do not need to set `TX_AGENT` or write `codex exec` yourself. Model names pass through unchanged; tx does not create aliases or guarantee that your provider offers a particular model.
+
+The table above is for link commands. Subcommands use `--agent codex` or `--agent claude`, without a model suffix: for example, `tx run --agent codex -j 3` or `tx channel @fireship --agent claude --top 5`. These use that agent's configured default model.
 
 **`-m` is different:** it selects the local Whisper transcription model, not the AI that analyzes the transcript. Choices: `tiny`, `base`, `small` (default), `medium`, `large-v3-turbo`.
 
@@ -185,7 +256,7 @@ Podcasts can be found by name through Apple's directory or added by RSS feed URL
 
 YouTube subscriptions can be imported from a signed-in browser or [Google Takeout](https://takeout.google.com): deselect everything, select **YouTube and YouTube Music**, then select only **subscriptions** and export. Give the resulting ZIP to your connected AI.
 
-Only uploads published after you follow a channel are screened automatically. To judge a channel's back catalog, run `tx channel @handle` in a terminal. To analyze older material in your app:
+After the optional first screening of each newly followed source's latest upload, only uploads published after you follow are screened automatically. For a sampled channel report, run `tx channel @handle` in a terminal. To analyze older material in your app:
 
 > Use tx: TL;DR of the latest 3 Fireship videos.
 
@@ -204,7 +275,7 @@ Run `tx onboard` to change your setup. `tx reset` starts over; **`tx reset --all
 
 ## Every morning, automatically
 
-After configuring what to follow, run a screening pass with `tx run`, or enable a daily schedule:
+First choose what to follow with `tx onboard` or your connected app. Try `tx run` manually and check the results before enabling a daily schedule:
 
 ```sh
 tx schedule --at 08:00
@@ -219,6 +290,10 @@ tx schedule --at 08:00
 | Write a digest of new analyses | `tx digest` |
 
 The OS scheduler runs `tx run`: a systemd user timer on Linux, a LaunchAgent on macOS, or Task Scheduler on Windows. tx checks what you follow and has your agent analyze each new upload for you, 3 at a time (up to 15 per run; the rest wait for the next). Podcast episodes without a published transcript are judged from their show notes first, so off-topic ones aren't transcribed. tx then writes a Markdown digest and the week's debrief, and sends a desktop notification if something meets your score threshold (3 by default). Run in a terminal, `tx run` shows each video's progress live. Your computer must be on; missed runs catch up at the next start on Linux and macOS.
+
+**Enabling a schedule can trigger a run immediately:** on systems that catch up missed runs, setting 08:00 after that time may run the first pass now rather than tomorrow. Plan limits apply even when the app is closed. To keep control of timing and concurrency, leave scheduling off and run `tx run --agent codex -j 1` manually.
+
+The digest is a saved Markdown file; the debrief is the cross-video summary shown in the app when there is enough analyzed material. `tx digest` only writes already-saved analyses that have not appeared in a digest—it does not fetch or analyze new uploads. Use `tx run` for that.
 
 To read digests on another device, point them at a folder you already sync. For example, on macOS:
 
@@ -238,7 +313,7 @@ tx learn
 
 tx reads your Claude Code, Codex and Oh My Pi sessions from the last 6 months on your computer, shows you which projects it found, and asks before sending anything. Your agent then writes a short profile: what you're working on now (projects active in the last 30 days) and with which stack, and, across the whole period, what you're strong at, what you'd likely want to keep up with, and what you already know. You see it before it's saved. Claude Code deletes its own sessions after 30 days unless you raise `cleanupPeriodDays` in its settings, so only Codex and Oh My Pi reach further back by default.
 
-From then on, every followed video and episode is scored for that, and takeaways name the project a moment matters for ("for tx's transcript cache: …"). `tx run` refreshes the profile every 7 days, so the daily brief follows your work as it changes. Your own description from `tx onboard` stays first and wins where the two disagree.
+From then on, `-q` reviews, channel selections and reports, and followed-video/episode screening use that profile. Takeaways can name the project a moment matters for ("for tx's transcript cache: …"). `tx run` refreshes a saved learned profile every 7 days, so the daily brief follows your work as it changes. Your own description from `tx onboard` stays first and wins where the two disagree.
 
 | Task | Command |
 | --- | --- |
@@ -272,6 +347,9 @@ Cursor's chat history is stored in a different format and isn't read yet.
 | Nothing prints while saving a note | `>` redirects the answer into the file; wait for the command to finish, then open the file |
 | A link requires login or reports DRM | That link cannot be processed by the current invocation; do not assume all links on the platform work |
 | Timestamps do not open when clicked | Use Ctrl+click (Cmd+click in iTerm2), in an OSC 8-capable terminal. Unsupported terminals still show readable text; try outside tmux/screen if they strip links |
+| Scores feel generic or irrelevant | Add a description with `tx onboard`, or run `tx learn`; inspect a learned profile with `tx learn --show` |
+| `tx run` says nothing new to screen | Confirm you follow sources; a completed pass or no uploads since following can leave nothing pending. Use the first-screening option in setup or review specific links |
+| Processing is slow or your AI plan is limiting requests | Use `-j 1`; captions are faster than local transcription. For channel reports, start with `--top 5` |
 | Want the latest version | Rerun the installer above, then check `tx --version` |
 
 ## MCP tools
@@ -297,7 +375,7 @@ Cursor's chat history is stored in a different format and isn't read yet.
 | `write_digest` | markdown digest + notification; asks your agent for a debrief when the week's analyzed videos changed |
 | `save_debrief` | store your agent's debrief across the last 7 days' analyzed videos (headline, summary, threads, and a script for the narrated video: one segment per channel) |
 
-Only uploads published after you start watching a channel are screened automatically, so adding a channel doesn't trigger a backlog.
+Automatic screening covers uploads published after you start following. The setup's first-brief action can also screen the latest upload per newly followed source, so you can try it without waiting for a new release; it does not process the whole backlog.
 
 The narrated debrief video plays inside the app: the view gets each YouTube video's file straight from Google's servers (`video_stream`, through yt-dlp) and the narrator's voice, which speaks on your computer (`narrate`): English with [Kokoro](https://github.com/hexgrad/kokoro) through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), Czech with [Piper](https://github.com/rhasspy/piper). Both tools are for the view, not the agent. The first English narration downloads sherpa-onnx (about 20-28 MB, by platform) and the Kokoro voice (about 132 MB, 155 MB unpacked) into the data folder; the first Czech one downloads Piper (about 26 MB) and its voice (about 63 MB).
 
