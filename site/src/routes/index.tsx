@@ -38,70 +38,84 @@ function Home() {
         id="main"
         className="wrap flex flex-col gap-14 pt-14 pb-20 sm:pt-20"
       >
-        <section className="flex flex-col items-start gap-5">
-          <p className="rise font-mono text-[11px] tracking-normal text-muted-foreground uppercase">
-            v{VERSION} · Open source
-          </p>
-          <h1
-            className="rise font-heading text-[clamp(30px,4.2vw,44px)] leading-[1.05] font-bold tracking-[-0.035em]"
-            style={d(1)}
-          >
-            Is this video worth watching?
-          </h1>
-          <p
-            className="rise max-w-[34em] text-[15px] leading-relaxed text-muted-foreground"
-            style={d(2)}
-          >
-            Paste a video or podcast link. Your own Claude or Codex answers{" "}
-            <b className="font-semibold text-ok">WATCH</b>,{" "}
-            <b className="font-semibold text-amber">SKIM</b> or{" "}
-            <b className="font-semibold text-coral">SKIP</b>, with timestamped
-            takeaways.
-          </p>
-          <div
-            className="rise flex w-full flex-col gap-3 sm:flex-row sm:items-start"
-            style={d(3)}
-          >
-            <div className="min-w-0 flex-1">
+        <section className="grid items-center gap-10 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-14">
+          <div className="flex min-w-0 flex-col items-start gap-5">
+            <p className="rise font-mono text-[11px] tracking-normal text-muted-foreground uppercase">
+              v{VERSION} · Open source
+            </p>
+            <h1
+              className="rise font-heading text-[clamp(30px,3.6vw,44px)] leading-[1.05] font-bold tracking-[-0.035em]"
+              style={d(1)}
+            >
+              Is this video worth watching?
+            </h1>
+            <p
+              className="rise max-w-[34em] text-[15px] leading-relaxed text-muted-foreground"
+              style={d(2)}
+            >
+              Paste a video or podcast link. Your own Claude or Codex answers{" "}
+              <b className="font-semibold text-ok">WATCH</b>,{" "}
+              <b className="font-semibold text-amber">SKIM</b> or{" "}
+              <b className="font-semibold text-coral">SKIP</b>, with timestamped
+              takeaways.
+            </p>
+            <div className="rise w-full min-w-0" style={d(3)}>
               <InstallTabs />
             </div>
           </div>
+          <figure className="rise min-w-0" style={d(3)}>
+            <TutorialVideo />
+            <figcaption className="mt-3 text-center font-mono text-[10.5px] text-dim">
+              74 s, silent with captions: install, setup, then the use cases.
+            </figcaption>
+          </figure>
         </section>
 
-        <section aria-label="Example output" className="rise" style={d(4)}>
-          <ReviewTerminal className="text-[12px] leading-[1.65] sm:text-[12.5px] xl:text-[13px]" />
-          <p className="mt-3 text-center font-mono text-[10.5px] text-dim">
-            Real tx 0.20.0 output, example profile.
-          </p>
-        </section>
-
-        <section aria-labelledby="commands" className="flex flex-col gap-4">
-          <h2
-            id="commands"
-            className="font-mono text-[11px] tracking-normal text-muted-foreground uppercase"
+        <div className="grid items-start gap-10 lg:grid-cols-2 lg:gap-8">
+          <section
+            aria-labelledby="output"
+            className="flex min-w-0 flex-col gap-4"
           >
-            Commands
-          </h2>
-          <Commands />
-          <p className="text-[13px] leading-relaxed text-muted-foreground">
-            Needs{" "}
-            <a
-              className={inlineLink}
-              href="https://code.claude.com/docs/en/quickstart"
+            <h2
+              id="output"
+              className="font-mono text-[11px] tracking-normal text-muted-foreground uppercase"
             >
-              Claude Code
-            </a>{" "}
-            or{" "}
-            <a
-              className={inlineLink}
-              href="https://learn.chatgpt.com/docs/codex/cli"
+              Real output
+            </h2>
+            <ReviewTerminal className="text-[12px] leading-[1.65] sm:text-[12.5px] xl:text-[12.5px]" />
+          </section>
+
+          <section
+            aria-labelledby="commands"
+            className="flex min-w-0 flex-col gap-4"
+          >
+            <h2
+              id="commands"
+              className="font-mono text-[11px] tracking-normal text-muted-foreground uppercase"
             >
-              Codex CLI
-            </a>
-            , signed in. Runs on macOS, Linux and Windows, on your computer: no
-            tx account.
-          </p>
-        </section>
+              Commands
+            </h2>
+            <Commands />
+            <p className="text-[13px] leading-relaxed text-muted-foreground">
+              Needs{" "}
+              <a
+                className={inlineLink}
+                href="https://code.claude.com/docs/en/quickstart"
+              >
+                Claude Code
+              </a>{" "}
+              or{" "}
+              <a
+                className={inlineLink}
+                href="https://learn.chatgpt.com/docs/codex/cli"
+              >
+                Codex CLI
+              </a>
+              , signed in. Runs on macOS, Linux and Windows, on your computer:
+              no tx account.
+            </p>
+          </section>
+        </div>
       </main>
       <SiteFooter />
     </>
@@ -151,5 +165,35 @@ function Commands() {
         <li className="text-(--t-grey)"># Replace URL with a quoted link.</li>
       </ul>
     </figure>
+  )
+}
+
+/**
+ * The README tutorial (release asset tx-terminal.mp4, re-encoded to 720p for the web; silent, with captions).
+ * Plays muted on a loop like a screen recording; stays paused when the visitor asks for reduced motion.
+ */
+function TutorialVideo() {
+  const ref = React.useRef<HTMLVideoElement>(null)
+  React.useEffect(() => {
+    const video = ref.current
+    if (!video) return
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+    void video.play().catch(() => undefined)
+  }, [])
+  return (
+    <video
+      ref={ref}
+      className="aspect-video w-full rounded-xl bg-black shadow-(--shadow-term)"
+      src="/tx-tutorial.mp4"
+      poster="/tx-tutorial-poster.jpg"
+      width={1280}
+      height={720}
+      muted
+      loop
+      playsInline
+      controls
+      preload="metadata"
+      aria-label="tx tutorial: install, setup, then reviewing videos in the terminal"
+    />
   )
 }
