@@ -157,7 +157,7 @@
     @apply mb-3.5 block font-mono text-xs tracking-normal text-muted-foreground uppercase;
   }
   .wrap {
-    @apply mx-auto w-full max-w-[1440px] px-5 sm:px-8 lg:px-12;
+    @apply mx-auto w-full max-w-[880px] px-5 sm:px-8;
   }
   .section {
     @apply py-16 sm:py-24 lg:py-28;
