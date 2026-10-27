@@ -89,11 +89,11 @@ fn tools() -> Value {
         { "name": "set_profile", "description": "Save the user's own description of who they are and what they want to learn. It doesn't change what tx learned from their sessions (`tx learn`).",
           "inputSchema": { "type": "object", "properties": { "profile": { "type": "string" } }, "required": ["profile"] } },
         { "name": "learn_from_sessions", "description": "Learn who the user is from their coding-agent sessions on this computer (Claude Code, Codex, Oh My Pi): returns redacted excerpts of what they typed over the last `days` days, grouped by project, with instructions for writing a short profile (what they work on now, strengths, what to keep up with). Call it only when the user asks tx to learn who they are, or from the setup panel; the excerpts reach your provider. Then save the profile with save_learned_profile.",
-          "inputSchema": { "type": "object", "properties": { "days": { "type": "integer", "minimum": 1, "maximum": 365, "default": 30 } } } },
+          "inputSchema": { "type": "object", "properties": { "days": { "type": "integer", "minimum": 1, "maximum": 365, "default": learn::DEFAULT_DAYS } } } },
         { "name": "save_learned_profile", "description": "Save the profile you wrote from learn_from_sessions. Every analysis is then scored for it, and scheduled runs (`tx run`) refresh it every 7 days. An empty profile forgets it.",
           "inputSchema": { "type": "object", "properties": {
             "profile": { "type": "string", "description": "The profile in exactly the format learn_from_sessions asked for" },
-            "days": { "type": "integer", "minimum": 1, "maximum": 365, "default": 30, "description": "The days you passed to learn_from_sessions" } }, "required": ["profile"] } },
+            "days": { "type": "integer", "minimum": 1, "maximum": 365, "default": learn::DEFAULT_DAYS, "description": "The days you passed to learn_from_sessions" } }, "required": ["profile"] } },
         { "name": "watch_channel", "description": "Start watching YouTube channels and podcasts. Only uploads published from now on are analyzed automatically; recent_videos still lists earlier ones.",
           "inputSchema": { "type": "object", "properties": { "channels": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Each an @handle, channel URL, channel or show id (from list_channels), a URL of one of its videos, or a podcast feed URL (from find_podcasts)" } }, "required": ["channels"] } },
         { "name": "find_podcasts", "description": "Search Apple's podcast directory by name or topic; returns shows with their feed URLs for watch_channel.",
@@ -268,7 +268,9 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
             "Saved.".into()
         }
         "learn_from_sessions" => {
-            let days = args["days"].as_u64().unwrap_or(30).clamp(1, 365) as u32;
+            let days = args["days"]
+                .as_u64()
+                .map_or(learn::DEFAULT_DAYS, |d| d.clamp(1, 365) as u32);
             let now = chrono::Utc::now();
             let prompts = tokio::task::spawn_blocking(move || sessions::collect(days, now)).await?;
             let activity = Activity::summarize(prompts, days, now);
@@ -287,7 +289,9 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
         }
         "save_learned_profile" => {
             let text = args["profile"].as_str().context("profile is required")?;
-            let days = args["days"].as_u64().unwrap_or(30).clamp(1, 365) as u32;
+            let days = args["days"]
+                .as_u64()
+                .map_or(learn::DEFAULT_DAYS, |d| d.clamp(1, 365) as u32);
             let conn = db.lock().unwrap();
             if text.trim().is_empty() {
                 db::forget_learned(&conn)?;

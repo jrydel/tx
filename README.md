@@ -228,7 +228,7 @@ Scores are only as good as tx's picture of you. Instead of describing yourself, 
 tx learn
 ```
 
-tx reads your Claude Code, Codex and Oh My Pi sessions from the last 30 days on your computer, shows you which projects it found, and asks before sending anything. Your agent then writes a short profile: what you're working on now and with which stack, what you're strong at, what you'd likely want to keep up with, and what you already know. You see it before it's saved.
+tx reads your Claude Code, Codex and Oh My Pi sessions from the last 6 months on your computer, shows you which projects it found, and asks before sending anything. Your agent then writes a short profile: what you're working on now (projects active in the last 30 days) and with which stack, and, across the whole period, what you're strong at, what you'd likely want to keep up with, and what you already know. You see it before it's saved. Claude Code deletes its own sessions after 30 days unless you raise `cleanupPeriodDays` in its settings, so only Codex and Oh My Pi reach further back by default.
 
 From then on, every followed video and episode is scored for that, and takeaways name the project a moment matters for ("for tx's transcript cache: …"). `tx run` refreshes the profile every 7 days, so the daily brief follows your work as it changes. Your own description from `tx onboard` stays first and wins where the two disagree.
 
@@ -242,7 +242,7 @@ From then on, every followed video and episode is scored for that, and takeaways
 What is read and sent:
 
 - **Only what you typed.** Agent replies, tool output, file contents, injected context, subagent sessions and non-interactive runs (`claude -p`, `codex exec`, including tx's own) are skipped.
-- **Redacted and cut short.** API keys, tokens, passwords, private keys, credentials in URLs and email addresses are replaced, and each prompt is cut to 400 characters. About 40 KB of excerpts, most active projects first.
+- **Redacted and cut short.** API keys, tokens, passwords, private keys, credentials in URLs and email addresses are replaced, and each prompt is cut to 400 characters. About 60 KB of excerpts, most active projects first; recent work counts more than work from months ago.
 - **To the agent you choose.** The excerpts go to Claude or Codex like a transcript does. Claude Code sessions sent to Codex (or the other way round) reach a provider that hasn't seen them before; pick the agent accordingly.
 - **Work, not your private life.** The agent is told to describe your work and learning only, and to leave out health, family, money, relationships, politics, other people's names and any secrets.
 

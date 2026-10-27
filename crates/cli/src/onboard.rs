@@ -452,7 +452,7 @@ async fn about(theme: &ColorfulTheme, db: &Db) -> Result<()> {
     {
         let options = crate::learn::Options {
             agent: None,
-            days: 30,
+            days: tx_core::learn::DEFAULT_DAYS,
             dry_run: false,
             yes: false,
         };

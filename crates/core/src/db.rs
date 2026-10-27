@@ -204,7 +204,7 @@ pub fn learned(conn: &Connection) -> Result<Option<Learned>> {
         at: get_value(conn, "learned_at")?.unwrap_or_default(),
         days: get_value(conn, "learned_days")?
             .and_then(|d| d.parse().ok())
-            .unwrap_or(30),
+            .unwrap_or(crate::learn::DEFAULT_DAYS),
     }))
 }
 

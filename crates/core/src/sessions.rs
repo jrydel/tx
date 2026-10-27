@@ -19,12 +19,13 @@ use std::time::SystemTime;
 const PROMPT_CHARS: usize = 400;
 /// Prompts shorter than this ("ok", "continue") say nothing about the person.
 const MIN_CHARS: usize = 20;
-/// Excerpt text sent to the agent, about 10k tokens.
-const BUDGET_CHARS: usize = 40_000;
+/// Excerpt text sent to the agent, about 15k tokens.
+const BUDGET_CHARS: usize = 60_000;
 /// Projects described with excerpts; the rest are listed by name.
-const MAX_PROJECTS: usize = 20;
-/// A prompt's weight halves every this many days, so current work outranks last month's.
-const HALF_LIFE_DAYS: f64 = 14.0;
+const MAX_PROJECTS: usize = 25;
+/// A prompt's weight halves every this many days, so current work outranks work from months ago
+/// without crowding it out.
+const HALF_LIFE_DAYS: f64 = 30.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Source {
@@ -428,6 +429,18 @@ impl Activity {
             } else {
                 0
             };
+            // Thin out evenly (newest always kept) instead of cutting off the oldest, so the
+            // whole period is represented, not just the latest weeks.
+            let total: usize = p.excerpts.iter().map(|(_, t)| t.chars().count()).sum();
+            if total > share && total > 0 {
+                let keep = share as f64 / total as f64;
+                let mut i = 0.0f64;
+                p.excerpts.retain(|_| {
+                    let before = i.ceil();
+                    i += keep;
+                    i.ceil() > before
+                });
+            }
             let mut used = 0;
             p.excerpts.retain(|(_, t)| {
                 used += t.chars().count();
@@ -735,12 +748,12 @@ mod tests {
             at: now - chrono::Duration::days(days_ago),
             text,
         };
-        // 100 prompts four weeks ago weigh 25; 40 from yesterday weigh about 38.
+        // 100 prompts three months ago weigh 12.5; 40 from yesterday weigh about 39.
         let mut prompts: Vec<Prompt> = (0..100)
             .map(|i| {
                 mk(
                     "/old",
-                    28,
+                    90,
                     format!("old project prompt number {i} with enough words to count"),
                 )
             })
@@ -766,5 +779,31 @@ mod tests {
             "current project prompt 0 about the new feature"
         );
         assert!(a.render().chars().count() < BUDGET_CHARS + 6_000);
+    }
+
+    #[test]
+    fn a_busy_project_keeps_excerpts_from_the_whole_period_not_just_the_latest_weeks() {
+        let now: DateTime<Utc> = "2026-10-27T00:00:00Z".parse().unwrap();
+        let prompts: Vec<Prompt> = (0..600)
+            .map(|i| Prompt {
+                source: Source::OhMyPi,
+                project: "/busy".into(),
+                at: now - chrono::Duration::hours(i * 6),
+                text: format!("prompt {i} about the same busy project with enough words in it"),
+            })
+            .collect();
+        let a = Activity::summarize(prompts, 180, now);
+        let kept = &a.projects[0].excerpts;
+        assert!(kept.len() < 600 && kept.len() > 20, "{}", kept.len());
+        assert_eq!(
+            kept[0].1,
+            "prompt 0 about the same busy project with enough words in it"
+        );
+        let oldest = kept.last().unwrap().0;
+        assert!(
+            now - oldest > chrono::Duration::days(120),
+            "oldest kept excerpt is only {} days old",
+            (now - oldest).num_days()
+        );
     }
 }

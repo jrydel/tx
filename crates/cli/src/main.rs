@@ -99,8 +99,8 @@ enum Command {
         /// Which agent writes the profile (default: whichever is installed)
         #[arg(long, value_enum)]
         agent: Option<agents::Agent>,
-        /// Days of sessions to read
-        #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u32).range(1..=365))]
+        /// Days of sessions to read; Claude Code itself keeps only 30 unless you change its cleanupPeriodDays
+        #[arg(long, default_value_t = tx_core::learn::DEFAULT_DAYS, value_parser = clap::value_parser!(u32).range(1..=365))]
         days: u32,
         /// Print exactly what would be sent to the agent, and stop
         #[arg(long)]

@@ -35,7 +35,7 @@ When the user asks for a TL;DR of specific or recent videos ("the latest Fireshi
 
 When the user asks tx to learn who they are, what they work on, or to refresh that ("learn who I am from my coding sessions"), or clicks it in the setup panel:
 
-1. Call `learn_from_sessions` (30 days unless they say otherwise). It reads what they typed to Claude Code, Codex and Oh My Pi on this computer, redacted, and returns instructions plus the excerpts. Only call it at their request: the excerpts reach your provider. If it finds nothing, ask them to describe themselves instead.
+1. Call `learn_from_sessions` (it reads 6 months unless they say otherwise). It reads what they typed to Claude Code, Codex and Oh My Pi on this computer, redacted, and returns instructions plus the excerpts. Only call it at their request: the excerpts reach your provider. If it finds nothing, ask them to describe themselves instead.
 2. Write the profile exactly as the instructions say: only what the excerpts support, their work and learning only.
 3. Call `save_learned_profile` with it and the same `days`, then show it to them in full and say they can ask for changes or to forget it (an empty `profile` forgets it). If they're setting tx up, call `onboarding` next.
 
