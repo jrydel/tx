@@ -2,7 +2,7 @@ import { CodeBlock } from "@/components/code-block"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { INSTALL } from "@/lib/site"
 
-/** Per-OS install commands, exactly as in the README. */
+/** Per-OS install commands, exactly as in the README. One line each; long commands scroll. */
 export function InstallTabs({ className }: { className?: string }) {
   return (
     <Tabs defaultValue="unix" className={className}>
@@ -14,17 +14,18 @@ export function InstallTabs({ className }: { className?: string }) {
           Windows
         </TabsTrigger>
       </TabsList>
-      <TabsContent value="unix" className="flex flex-col gap-2">
-        <CodeBlock code={INSTALL.unix} wrap />
-        <p className="font-mono text-[11px] text-dim">
-          macOS (Apple Silicon) or Linux (x86_64)
-        </p>
+      <TabsContent value="unix">
+        <CodeBlock
+          code={INSTALL.unix}
+          className="text-[11.5px] sm:text-[12px]"
+        />
       </TabsContent>
-      <TabsContent value="windows" className="flex flex-col gap-2">
-        <CodeBlock code={INSTALL.windows} prompt="PS>" wrap />
-        <p className="font-mono text-[11px] text-dim">
-          Windows (x64), in PowerShell
-        </p>
+      <TabsContent value="windows">
+        <CodeBlock
+          code={INSTALL.windows}
+          prompt="PS>"
+          className="text-[11.5px] sm:text-[12px]"
+        />
       </TabsContent>
     </Tabs>
   )
