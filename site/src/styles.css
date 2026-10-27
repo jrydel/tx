@@ -90,6 +90,7 @@
   --coral-fill: #ff7a6b;
   --ink: #0a1210;
   --shadow-card: 0 0 0 1px #d3dfdf, 0 28px 64px -28px #0a2a3055;
+  --shadow-term: 0 0 0 1px #24373e, 0 40px 100px -30px rgb(0 0 0 / 0.45);
 }
 
 .dark {
@@ -122,6 +123,7 @@
   --coral-fill: #ff7a6b;
   --ink: #0a1210;
   --shadow-card: 0 0 0 1px #1f323a, 0 30px 70px -24px #000;
+  --shadow-term: 0 0 0 1px #24373e, 0 40px 100px -30px rgb(0 0 0 / 0.6), 0 0 120px -60px rgb(246 184 61 / 0.16);
 }
 
 @layer base {
@@ -173,48 +175,9 @@
   }
 }
 
-/* Terminal output is always dark, in either theme, like tx's own colours. */
-.term {
-  --t-bg: #0f181b;
-  --t-bar: #16232a;
-  --t-line: #2a3d44;
-  --t-fg: #e9f1f0;
-  --t-grey: #8ba0a4;
-  --t-amber: #f6b83d;
-  --t-cyan: #5fd0de;
-  --t-green: #5fd991;
-  --t-coral: #ff8878;
-  --shadow-term:
-    0 0 0 1px #24373e, 0 40px 100px -30px rgb(0 0 0 / 0.6),
-    0 0 120px -60px rgb(246 184 61 / 0.16);
-  background: var(--t-bg);
-  color: var(--t-fg);
-}
-
-.term-bar-hatch {
-  background: repeating-linear-gradient(
-    135deg,
-    #36494f 0 1px,
-    transparent 1px 3px
-  );
-}
-
-.term-bar-fill {
-  background: repeating-linear-gradient(
-    90deg,
-    #f6b83d 0 5px,
-    #c98f22 5px 6px
-  );
-  animation: sweep 1.4s var(--ease-out-expo) 0.9s both;
-}
-
-@keyframes sweep {
-  from {
-    clip-path: inset(0 100% 0 0);
-  }
-  to {
-    clip-path: inset(0);
-  }
+/* Unplayed part of a timeline, hatched like tx draws it in the terminal. */
+.hatch {
+  background: repeating-linear-gradient(135deg, var(--border-strong) 0 1px, transparent 1px 4px);
 }
 
 @keyframes rise {

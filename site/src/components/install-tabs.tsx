@@ -6,7 +6,7 @@ import { INSTALL } from "@/lib/site"
 export function InstallTabs({ className }: { className?: string }) {
   return (
     <Tabs defaultValue="unix" className={className}>
-      <TabsList aria-label="Operating system">
+      <TabsList aria-label="Operating system" className="self-center">
         <TabsTrigger value="unix" className="px-3 font-mono text-xs">
           macOS · Linux
         </TabsTrigger>

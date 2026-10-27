@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button"
 
 export const THEME_KEY = "tx-theme"
 
-/** Runs before first paint: stored choice, else the OS preference, dark by default. */
-export const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("${THEME_KEY}");if(!t)t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";document.documentElement.classList.toggle("dark",t==="dark");document.documentElement.style.colorScheme=t}catch(e){}})()`
+/** Runs before first paint: the stored choice, else light. */
+export const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("${THEME_KEY}");if(!t)t="light";document.documentElement.classList.toggle("dark",t==="dark");document.documentElement.style.colorScheme=t}catch(e){}})()`
 
 function toggleTheme() {
   const root = document.documentElement

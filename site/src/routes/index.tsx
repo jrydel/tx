@@ -3,22 +3,24 @@ import { createFileRoute } from "@tanstack/react-router"
 import { InstallTabs } from "@/components/install-tabs"
 import { SiteFooter } from "@/components/site-footer"
 import { SiteHeader } from "@/components/site-header"
-import { ReviewTerminal } from "@/components/terminal"
+import { cn } from "@/lib/utils"
 import { VERSION } from "@/lib/site"
 
 export const Route = createFileRoute("/")({ component: Home })
 
-/** Source of every claim: README.md, install.sh, install.ps1, .github/assets/tx-tutorial.jpg. */
-const COMMANDS = [
-  ["Review one link", 'tx "URL" -q'],
-  ["Triage several tabs", 'tx "URL1" "URL2" "URL3" -q'],
-  ["Decide whether to follow a channel", "tx channel @t3dotgg --top 5"],
-  ["Screen new uploads from sources you follow", "tx run"],
-  [
-    "Ask your own question, save a note",
-    'tx "URL" -a "Explain the technique with timestamps and the source URL" > note.md',
-  ],
+/** Chapters of the README tutorial (tx-terminal.mp4), read from its own captions; times in seconds. */
+const DURATION = 74.5
+const CHAPTERS = [
+  { start: 0, label: "Install" },
+  { start: 3, label: "Set up" },
+  { start: 21, label: "First screening" },
+  { start: 30, label: "Review one link" },
+  { start: 39, label: "Review several links" },
+  { start: 57, label: "Sample a channel" },
 ] as const
+
+const stamp = (s: number) =>
+  `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`
 
 const inlineLink =
   "text-cyan underline decoration-cyan/40 underline-offset-4 transition-colors hover:decoration-cyan"
@@ -36,67 +38,34 @@ function Home() {
       <SiteHeader />
       <main
         id="main"
-        className="wrap flex flex-col gap-14 pt-14 pb-20 sm:pt-20"
+        className="wrap flex flex-col items-center gap-10 pt-10 pb-16 sm:pt-14 sm:pb-20"
       >
-        <section className="grid items-center gap-10 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-14">
-          <div className="flex min-w-0 flex-col items-start gap-5">
-            <p className="rise font-mono text-[11px] tracking-normal text-muted-foreground uppercase">
-              v{VERSION} · Open source
-            </p>
-            <h1
-              className="rise font-heading text-[clamp(30px,3.6vw,44px)] leading-[1.05] font-bold tracking-[-0.035em]"
-              style={d(1)}
-            >
-              Is this video worth watching?
-            </h1>
-            <p
-              className="rise max-w-[34em] text-[15px] leading-relaxed text-muted-foreground"
-              style={d(2)}
-            >
-              Paste a video or podcast link. Your own Claude or Codex answers{" "}
-              <b className="font-semibold text-ok">WATCH</b>,{" "}
-              <b className="font-semibold text-amber">SKIM</b> or{" "}
-              <b className="font-semibold text-coral">SKIP</b>, with timestamped
-              takeaways.
-            </p>
-            <div className="rise w-full min-w-0" style={d(3)}>
-              <InstallTabs />
-            </div>
-          </div>
-          <figure className="rise min-w-0" style={d(3)}>
-            <TutorialVideo />
-            <figcaption className="mt-3 text-center font-mono text-[10.5px] text-dim">
-              74 s, silent with captions: install, setup, then the use cases.
-            </figcaption>
-          </figure>
-        </section>
-
-        <div className="grid items-start gap-10 lg:grid-cols-2 lg:gap-8">
-          <section
-            aria-labelledby="output"
-            className="flex min-w-0 flex-col gap-4"
+        <section className="flex w-full max-w-[640px] flex-col items-center gap-4 text-center">
+          <p className="rise font-mono text-[11px] text-muted-foreground">
+            tx {VERSION} · open source
+          </p>
+          <h1
+            className="rise font-heading text-[clamp(26px,3.2vw,36px)] leading-[1.08] font-bold tracking-[-0.035em]"
+            style={d(1)}
           >
-            <h2
-              id="output"
-              className="font-mono text-[11px] tracking-normal text-muted-foreground uppercase"
-            >
-              Real output
-            </h2>
-            <ReviewTerminal className="text-[12px] leading-[1.65] sm:text-[12.5px] xl:text-[12.5px]" />
-          </section>
-
-          <section
-            aria-labelledby="commands"
-            className="flex min-w-0 flex-col gap-4"
+            Is this video worth watching?
+          </h1>
+          <p
+            className="rise max-w-[30em] text-[15px] leading-relaxed text-muted-foreground"
+            style={d(2)}
           >
-            <h2
-              id="commands"
-              className="font-mono text-[11px] tracking-normal text-muted-foreground uppercase"
-            >
-              Commands
-            </h2>
-            <Commands />
-            <p className="text-[13px] leading-relaxed text-muted-foreground">
+            Paste a video or podcast link. Your own Claude or Codex answers{" "}
+            <b className="font-semibold text-ok">WATCH</b>,{" "}
+            <b className="font-semibold text-amber">SKIM</b> or{" "}
+            <b className="font-semibold text-coral">SKIP</b>, with timestamped
+            takeaways.
+          </p>
+          <div
+            className="rise mt-2 flex w-full flex-col items-center gap-2 text-left"
+            style={d(3)}
+          >
+            <InstallTabs className="w-full min-w-0" />
+            <p className="text-center text-[12px] leading-relaxed text-muted-foreground">
               Needs{" "}
               <a
                 className={inlineLink}
@@ -111,89 +80,127 @@ function Home() {
               >
                 Codex CLI
               </a>
-              , signed in. Runs on macOS, Linux and Windows, on your computer:
-              no tx account.
+              , signed in. Runs on your computer, no tx account.
             </p>
-          </section>
-        </div>
+          </div>
+        </section>
+
+        <section
+          aria-label="Tutorial"
+          className="rise w-full max-w-[920px]"
+          style={d(4)}
+        >
+          <TutorialPlayer />
+        </section>
       </main>
       <SiteFooter />
     </>
   )
 }
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = React.useState(false)
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
-          setCopied(true)
-          window.setTimeout(() => setCopied(false), 1400)
-        })
-      }}
-      className="shrink-0 rounded-md px-1.5 text-[10.5px] text-(--t-grey) opacity-0 transition-opacity group-hover:opacity-100 hover:text-(--t-fg) focus-visible:opacity-100"
-      aria-label={`Copy ${text}`}
-    >
-      {copied ? "Copied" : "Copy"}
-    </button>
-  )
-}
-
-function Commands() {
-  return (
-    <figure className="term overflow-hidden rounded-xl font-mono text-[12px] leading-relaxed shadow-(--shadow-term) sm:text-[12.5px]">
-      <ul className="flex flex-col gap-3.5 px-5 py-5 sm:px-6">
-        {COMMANDS.map(([label, cmd]) => (
-          <li key={label} className="group">
-            <p className="text-(--t-grey)"># {label}</p>
-            <div className="flex items-start justify-between gap-3">
-              <code className="min-w-0 break-words">
-                <span
-                  aria-hidden="true"
-                  className="mr-2 text-(--t-cyan) select-none"
-                >
-                  $
-                </span>
-                {cmd}
-              </code>
-              <CopyButton text={cmd} />
-            </div>
-          </li>
-        ))}
-        <li className="text-(--t-grey)"># Replace URL with a quoted link.</li>
-      </ul>
-    </figure>
-  )
-}
-
 /**
- * The README tutorial (release asset tx-terminal.mp4, re-encoded to 720p for the web; silent, with captions).
- * Plays muted on a loop like a screen recording; stays paused when the visitor asks for reduced motion.
+ * The README tutorial (release asset tx-terminal.mp4, re-encoded to 720p; silent, with captions) with a chapter
+ * timeline drawn like tx's own: the part playing is filled amber, and every timestamp jumps the video there.
+ * Plays muted on a loop; stays paused when the visitor asks for reduced motion.
  */
-function TutorialVideo() {
+function TutorialPlayer() {
   const ref = React.useRef<HTMLVideoElement>(null)
+  const [time, setTime] = React.useState(0)
+
   React.useEffect(() => {
     const video = ref.current
     if (!video) return
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
-    void video.play().catch(() => undefined)
+    const onTime = () => setTime(video.currentTime)
+    video.addEventListener("timeupdate", onTime)
+    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+      void video.play().catch(() => undefined)
+    return () => video.removeEventListener("timeupdate", onTime)
   }, [])
+
+  const seek = (start: number) => {
+    const video = ref.current
+    if (!video) return
+    video.currentTime = start + 0.01
+    void video.play().catch(() => undefined)
+  }
+
+  const active = CHAPTERS.reduce(
+    (index, chapter, i) => (time >= chapter.start ? i : index),
+    0
+  )
+
   return (
-    <video
-      ref={ref}
-      className="aspect-video w-full rounded-xl bg-black shadow-(--shadow-term)"
-      src="/tx-tutorial.mp4"
-      poster="/tx-tutorial-poster.jpg"
-      width={1280}
-      height={720}
-      muted
-      loop
-      playsInline
-      controls
-      preload="metadata"
-      aria-label="tx tutorial: install, setup, then reviewing videos in the terminal"
-    />
+    <figure className="flex flex-col gap-4">
+      <video
+        ref={ref}
+        className="aspect-video w-full rounded-xl border border-border bg-black"
+        src="/tx-tutorial.mp4"
+        poster="/tx-tutorial-poster.jpg"
+        width={1280}
+        height={720}
+        muted
+        loop
+        playsInline
+        controls
+        preload="metadata"
+        aria-label="tx tutorial: install, setup, then reviewing videos in the terminal"
+      />
+
+      <div className="flex gap-0.5" aria-hidden="true">
+        {CHAPTERS.map((chapter, i) => {
+          const end = i + 1 < CHAPTERS.length ? CHAPTERS[i + 1].start : DURATION
+          const length = end - chapter.start
+          const played = Math.min(
+            1,
+            Math.max(0, (time - chapter.start) / length)
+          )
+          return (
+            <button
+              key={chapter.label}
+              type="button"
+              tabIndex={-1}
+              onClick={() => seek(chapter.start)}
+              className="hatch relative h-2.5 cursor-pointer overflow-hidden"
+              style={{ flexGrow: length, flexBasis: 0 }}
+            >
+              <span
+                className="absolute inset-y-0 left-0 bg-amber-fill transition-[width] duration-300 ease-linear"
+                style={{ width: `${played * 100}%` }}
+              />
+            </button>
+          )
+        })}
+      </div>
+
+      <figcaption className="flex flex-col gap-3">
+        <ol className="grid grid-cols-2 gap-x-6 gap-y-1.5 font-mono text-[12px] sm:grid-cols-3">
+          {CHAPTERS.map((chapter, i) => (
+            <li key={chapter.label}>
+              <button
+                type="button"
+                onClick={() => seek(chapter.start)}
+                aria-label={`Play from ${stamp(chapter.start)}: ${chapter.label}`}
+                className={cn(
+                  "flex items-baseline gap-2 text-left transition-colors",
+                  i === active
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <span className="text-cyan underline decoration-cyan/40 underline-offset-4">
+                  {stamp(chapter.start)}
+                </span>
+                <span className={cn(i === active && "font-semibold")}>
+                  {chapter.label}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ol>
+        <p className="font-mono text-[11px] text-dim">
+          Tutorial · 01:14 · silent, with captions · real tx 0.20.0 output
+        </p>
+      </figcaption>
+    </figure>
   )
 }

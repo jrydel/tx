@@ -65,8 +65,8 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    // The inline theme script may swap `dark` for light before hydration.
-    <html lang="en" className="dark" suppressHydrationWarning>
+    // The inline theme script adds `dark` before hydration when the visitor chose it.
+    <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
