@@ -17,7 +17,7 @@ Open source, MIT licensed. Runs locally on macOS, Linux, and Windows. No tx acco
 
 https://github.com/user-attachments/assets/2aacbddb-5d13-4967-b7b4-f689db968955
 
-**[Download the tutorial (MP4, 74 seconds)](https://github.com/user-attachments/assets/2aacbddb-5d13-4967-b7b4-f689db968955)** — one continuous terminal session: install and finish setup, then try the use cases. Real tx 0.20.0 and Claude Code output with an example profile; silent, with captions, sped-up typing and shortened waits.
+**[Download the tutorial (MP4, 74 seconds)](https://github.com/jrydel/tx/releases/download/v0.20.0/tx-terminal.mp4)** — one continuous terminal session: install and finish setup, then try the use cases. Real tx 0.20.0 and Claude Code output with an example profile; silent, with captions, sped-up typing and shortened waits.
 
 Steps: **0:00** install · **0:03** connect Claude Code · **0:07** describe your interests · **0:12** follow a source · **0:19** decline the optional schedule · **0:21** screen the first upload. Use cases: **0:30** review one video · **0:39** review several · **0:57** evaluate a channel.
 
