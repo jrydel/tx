@@ -4,7 +4,6 @@ import {
   Scripts,
   createRootRoute,
 } from "@tanstack/react-router"
-import { THEME_SCRIPT } from "@/components/theme-toggle"
 import { SITE_URL } from "@/lib/site"
 
 import appCss from "../styles.css?url"
@@ -24,17 +23,8 @@ export const Route = createRootRoute({
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: TITLE },
       { name: "description", content: DESCRIPTION },
-      { name: "color-scheme", content: "dark light" },
-      {
-        name: "theme-color",
-        content: "#0a0a0a",
-        media: "(prefers-color-scheme: dark)",
-      },
-      {
-        name: "theme-color",
-        content: "#ffffff",
-        media: "(prefers-color-scheme: light)",
-      },
+      { name: "color-scheme", content: "light" },
+      { name: "theme-color", content: "#ffffff" },
       { property: "og:type", content: "website" },
       { property: "og:site_name", content: "tx" },
       { property: "og:url", content: SITE_URL },
@@ -57,7 +47,6 @@ export const Route = createRootRoute({
       { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
       { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
     ],
-    scripts: [{ children: THEME_SCRIPT }],
   }),
   notFoundComponent: NotFound,
   shellComponent: RootDocument,
@@ -65,8 +54,7 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    // The inline theme script adds `dark` before hydration when the visitor chose it.
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <head>
         <HeadContent />
       </head>
@@ -80,10 +68,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 
 function NotFound() {
   return (
-    <main className="wrap flex min-h-svh flex-col justify-center gap-4">
-      <p className="eyebrow">404</p>
-      <h1 className="h1">Nothing to review here.</h1>
-      <Link to="/" className="font-mono text-sm underline underline-offset-4">
+    <main className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
+      <p className="font-mono text-sm text-muted-foreground">404</p>
+      <h1 className="text-4xl font-semibold tracking-[-0.03em]">
+        Nothing to review here.
+      </h1>
+      <Link to="/" className="text-sm text-blue hover:underline">
         Back to tx
       </Link>
     </main>

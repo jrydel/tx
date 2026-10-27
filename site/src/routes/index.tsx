@@ -1,206 +1,217 @@
 import * as React from "react"
 import { createFileRoute } from "@tanstack/react-router"
-import { InstallTabs } from "@/components/install-tabs"
-import { SiteFooter } from "@/components/site-footer"
-import { SiteHeader } from "@/components/site-header"
+import { Check, Copy } from "lucide-react"
+import {
+  AUTHOR_URL,
+  INSTALL,
+  LICENSE_URL,
+  REPO_URL,
+  STUDIO_URL,
+  VERSION,
+} from "@/lib/site"
 import { cn } from "@/lib/utils"
-import { VERSION } from "@/lib/site"
 
 export const Route = createFileRoute("/")({ component: Home })
 
-/** Chapters of the README tutorial (tx-terminal.mp4), read from its own captions; times in seconds. */
-const DURATION = 74.5
-const CHAPTERS = [
-  { start: 0, label: "Install" },
-  { start: 3, label: "Set up" },
-  { start: 21, label: "First screening" },
-  { start: 30, label: "Review one link" },
-  { start: 39, label: "Review several links" },
-  { start: 57, label: "Sample a channel" },
-] as const
+type Os = keyof typeof INSTALL
 
-const stamp = (s: number) =>
-  `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`
-
-const inlineLink =
-  "text-cyan underline decoration-cyan/40 underline-offset-4 transition-colors hover:decoration-cyan"
+const OS_LABEL: Record<Os, string> = {
+  unix: "macOS · Linux",
+  windows: "Windows",
+}
 
 function Home() {
   const d = (n: number) => ({ "--d": n }) as React.CSSProperties
   return (
-    <>
-      <a
-        href="#main"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-foreground focus:px-3 focus:py-2 focus:text-background"
-      >
-        Skip to content
-      </a>
-      <SiteHeader />
-      <main
-        id="main"
-        className="wrap flex flex-col items-center gap-10 pt-10 pb-16 sm:pt-14 sm:pb-20"
-      >
-        <section className="flex w-full max-w-[640px] flex-col items-center gap-4 text-center">
-          <p className="rise font-mono text-[11px] text-muted-foreground">
-            tx {VERSION} · open source
-          </p>
-          <h1
-            className="rise font-heading text-[clamp(26px,3.2vw,36px)] leading-[1.08] font-bold tracking-[-0.035em]"
-            style={d(1)}
-          >
-            Is this video worth watching?
-          </h1>
-          <p
-            className="rise max-w-[30em] text-[15px] leading-relaxed text-muted-foreground"
-            style={d(2)}
-          >
-            Paste a video or podcast link. Your own Claude or Codex answers{" "}
-            <b className="font-semibold text-ok">WATCH</b>,{" "}
-            <b className="font-semibold text-amber">SKIM</b> or{" "}
-            <b className="font-semibold text-coral">SKIP</b>, with timestamped
-            takeaways.
-          </p>
-          <div
-            className="rise mt-2 flex w-full flex-col items-center gap-2 text-left"
-            style={d(3)}
-          >
-            <InstallTabs className="w-full min-w-0" />
-            <p className="text-center text-[12px] leading-relaxed text-muted-foreground">
-              Needs{" "}
-              <a
-                className={inlineLink}
-                href="https://code.claude.com/docs/en/quickstart"
-              >
-                Claude Code
-              </a>{" "}
-              or{" "}
-              <a
-                className={inlineLink}
-                href="https://learn.chatgpt.com/docs/codex/cli"
-              >
-                Codex CLI
-              </a>
-              , signed in. Runs on your computer, no tx account.
-            </p>
-          </div>
-        </section>
+    <div className="one-screen flex min-h-dvh flex-col">
+      <header className="flex h-12 flex-none items-center justify-between px-[max(22px,calc((100vw-1024px)/2))] text-[13px]">
+        <a
+          href="/"
+          aria-label="tx home"
+          className="text-[19px] font-bold tracking-[-0.04em]"
+        >
+          tx
+        </a>
+        <a
+          href={REPO_URL}
+          className="text-muted-foreground transition-colors hover:text-foreground"
+        >
+          GitHub
+        </a>
+      </header>
 
-        <section
-          aria-label="Tutorial"
-          className="rise w-full max-w-[920px]"
+      <main className="flex min-h-0 flex-1 flex-col items-center justify-start px-[22px] pt-6 pb-9 text-center min-[721px]:justify-center min-[721px]:pt-0 min-[721px]:pb-0">
+        <h1
+          className="rise font-heading text-[clamp(42px,5.6vw,82px)] leading-[1.04] font-semibold tracking-[-0.034em] text-balance"
+          style={d(0)}
+        >
+          Is this video worth watching?
+        </h1>
+        <p
+          className="rise mt-3.5 text-[clamp(18px,1.55vw,22px)] leading-[1.3] tracking-[-0.012em] text-balance text-muted-foreground"
+          style={d(1)}
+        >
+          Paste a link. Your own Claude or Codex says{" "}
+          <b className="font-medium text-foreground">watch</b>,{" "}
+          <b className="font-medium text-foreground">skim</b> or{" "}
+          <b className="font-medium text-foreground">skip</b>.
+        </p>
+
+        <div className="rise rise-mac mac mt-[30px] flex-none" style={d(2)}>
+          <div className="mac-lid">
+            <div className="mac-bezel">
+              <div className="mac-screen">
+                <TutorialVideo />
+              </div>
+            </div>
+          </div>
+          <div className="mac-base" aria-hidden="true" />
+        </div>
+
+        <div
+          className="rise mt-[30px] flex w-full flex-none flex-col items-center gap-3 min-[721px]:mt-[38px] min-[721px]:w-auto"
           style={d(4)}
         >
-          <TutorialPlayer />
-        </section>
+          <InstallPill />
+          <p className="max-w-[28ch] text-[13px] tracking-[-0.005em] text-balance text-faint min-[721px]:max-w-none">
+            Runs on your computer. Needs Claude Code or Codex CLI, signed in.
+          </p>
+        </div>
       </main>
-      <SiteFooter />
-    </>
+
+      <footer className="flex-none px-[22px] pb-7 text-center text-xs leading-normal text-faint min-[721px]:pb-5">
+        <ul className="flex flex-col items-center min-[721px]:flex-row min-[721px]:justify-center min-[721px]:[&>li+li]:before:mx-[9px] min-[721px]:[&>li+li]:before:content-['·']">
+          <li>
+            Open source ·{" "}
+            <a
+              href={LICENSE_URL}
+              className="underline decoration-black/25 underline-offset-2 hover:text-foreground"
+            >
+              MIT
+            </a>
+          </li>
+          <li>Version {VERSION}</li>
+          <li>
+            Built by{" "}
+            <a
+              href={AUTHOR_URL}
+              className="underline decoration-black/25 underline-offset-2 hover:text-foreground"
+            >
+              Jiří Rýdel
+            </a>
+          </li>
+          <li>
+            A{" "}
+            <a
+              href={STUDIO_URL}
+              className="underline decoration-black/25 underline-offset-2 hover:text-foreground"
+            >
+              TodayWorks
+            </a>{" "}
+            tool
+          </li>
+        </ul>
+      </footer>
+    </div>
   )
 }
 
-/**
- * The README tutorial (release asset tx-terminal.mp4, re-encoded to 720p; silent, with captions) with a chapter
- * timeline drawn like tx's own: the part playing is filled amber, and every timestamp jumps the video there.
- * Plays muted on a loop; stays paused when the visitor asks for reduced motion.
- */
-function TutorialPlayer() {
+/** The README tutorial (release asset tx-terminal.mp4, re-encoded to 720p; silent, with captions). */
+function TutorialVideo() {
   const ref = React.useRef<HTMLVideoElement>(null)
-  const [time, setTime] = React.useState(0)
-
   React.useEffect(() => {
-    const video = ref.current
-    if (!video) return
-    const onTime = () => setTime(video.currentTime)
-    video.addEventListener("timeupdate", onTime)
-    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches)
-      void video.play().catch(() => undefined)
-    return () => video.removeEventListener("timeupdate", onTime)
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+    void ref.current?.play().catch(() => undefined)
   }, [])
+  return (
+    <video
+      ref={ref}
+      className="block size-full bg-black object-cover"
+      src="/tx-tutorial.mp4"
+      poster="/tx-tutorial-poster.jpg"
+      width={1280}
+      height={720}
+      muted
+      loop
+      playsInline
+      controls
+      preload="metadata"
+      aria-label="tx tutorial, 74 seconds: install, setup, then reviewing videos"
+    />
+  )
+}
 
-  const seek = (start: number) => {
-    const video = ref.current
-    if (!video) return
-    video.currentTime = start + 0.01
-    void video.play().catch(() => undefined)
+function InstallPill() {
+  const [os, setOs] = React.useState<Os>("unix")
+  const [copied, setCopied] = React.useState(false)
+  const timer = React.useRef<number>(undefined)
+
+  const copy = async () => {
+    const text = INSTALL[os]
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      // Clipboard API blocked (insecure context, permissions): fall back to a hidden textarea.
+      const area = document.createElement("textarea")
+      area.value = text
+      area.style.position = "fixed"
+      area.style.opacity = "0"
+      document.body.append(area)
+      area.select()
+      document.execCommand("copy")
+      area.remove()
+    }
+    setCopied(true)
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setCopied(false), 1800)
   }
 
-  const active = CHAPTERS.reduce(
-    (index, chapter, i) => (time >= chapter.start ? i : index),
-    0
-  )
-
   return (
-    <figure className="flex flex-col gap-4">
-      <video
-        ref={ref}
-        className="aspect-video w-full rounded-xl border border-border bg-black"
-        src="/tx-tutorial.mp4"
-        poster="/tx-tutorial-poster.jpg"
-        width={1280}
-        height={720}
-        muted
-        loop
-        playsInline
-        controls
-        preload="metadata"
-        aria-label="tx tutorial: install, setup, then reviewing videos in the terminal"
-      />
-
-      <div className="flex gap-0.5" aria-hidden="true">
-        {CHAPTERS.map((chapter, i) => {
-          const end = i + 1 < CHAPTERS.length ? CHAPTERS[i + 1].start : DURATION
-          const length = end - chapter.start
-          const played = Math.min(
-            1,
-            Math.max(0, (time - chapter.start) / length)
-          )
-          return (
-            <button
-              key={chapter.label}
-              type="button"
-              tabIndex={-1}
-              onClick={() => seek(chapter.start)}
-              className="hatch relative h-2.5 cursor-pointer overflow-hidden"
-              style={{ flexGrow: length, flexBasis: 0 }}
-            >
-              <span
-                className="absolute inset-y-0 left-0 bg-amber-fill transition-[width] duration-300 ease-linear"
-                style={{ width: `${played * 100}%` }}
-              />
-            </button>
-          )
-        })}
+    <div className="flex w-full max-w-full flex-col items-stretch gap-2.5 rounded-[26px] border bg-muted p-2 min-[721px]:w-auto min-[721px]:flex-row min-[721px]:items-center min-[721px]:gap-3.5 min-[721px]:rounded-full min-[721px]:p-1.5">
+      <div
+        role="group"
+        aria-label="Operating system"
+        className="flex flex-none rounded-full bg-black/[0.055] p-[3px]"
+      >
+        {(Object.keys(INSTALL) as Array<Os>).map((key) => (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={os === key}
+            onClick={() => {
+              setOs(key)
+              setCopied(false)
+            }}
+            className={cn(
+              "flex-1 cursor-pointer rounded-full px-3.5 py-[9px] text-[13px] leading-none font-medium tracking-[-0.005em] whitespace-nowrap transition-[background,color,box-shadow] duration-200 max-[720px]:py-[11px]",
+              os === key
+                ? "bg-white text-foreground shadow-[0_1px_2px_rgb(0_0_0/0.14),0_0_0_0.5px_rgb(0_0_0/0.06)]"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {OS_LABEL[key]}
+          </button>
+        ))}
       </div>
-
-      <figcaption className="flex flex-col gap-3">
-        <ol className="grid grid-cols-2 gap-x-6 gap-y-1.5 font-mono text-[12px] sm:grid-cols-3">
-          {CHAPTERS.map((chapter, i) => (
-            <li key={chapter.label}>
-              <button
-                type="button"
-                onClick={() => seek(chapter.start)}
-                aria-label={`Play from ${stamp(chapter.start)}: ${chapter.label}`}
-                className={cn(
-                  "flex items-baseline gap-2 text-left transition-colors",
-                  i === active
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <span className="text-cyan underline decoration-cyan/40 underline-offset-4">
-                  {stamp(chapter.start)}
-                </span>
-                <span className={cn(i === active && "font-semibold")}>
-                  {chapter.label}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ol>
-        <p className="font-mono text-[11px] text-dim">
-          Tutorial · 01:14 · silent, with captions · real tx 0.20.0 output
-        </p>
-      </figcaption>
-    </figure>
+      <code className="min-w-0 [scrollbar-width:none] overflow-x-auto px-2 py-1 text-left font-mono text-[11.5px] leading-[1.55] tracking-[-0.01em] break-all min-[721px]:px-0 min-[721px]:text-[12.5px] min-[721px]:leading-[1.2] min-[721px]:break-normal min-[721px]:whitespace-nowrap">
+        {INSTALL[os]}
+      </code>
+      <button
+        type="button"
+        onClick={() => void copy()}
+        aria-label="Copy install command"
+        className={cn(
+          "inline-flex h-11 flex-none cursor-pointer items-center justify-center gap-[7px] rounded-full pr-[18px] pl-[15px] text-sm leading-none font-medium tracking-[-0.01em] text-white transition-[background,transform] duration-150 active:scale-[0.97] min-[721px]:h-[38px]",
+          copied ? "bg-foreground" : "bg-blue hover:bg-blue-hover"
+        )}
+      >
+        {copied ? (
+          <Check aria-hidden="true" className="size-[15px]" />
+        ) : (
+          <Copy aria-hidden="true" className="size-[15px]" />
+        )}
+        <span aria-live="polite">{copied ? "Copied" : "Copy"}</span>
+      </button>
+    </div>
   )
 }
