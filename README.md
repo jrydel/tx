@@ -58,7 +58,7 @@ Or ask a question relevant to you:
 tx "https://www.youtube.com/watch?v=USeyDcWyVCc" -g codex -q "As a software engineer, what matters here?"
 ```
 
-The result includes a 0–5 relevance score, a WATCH / SKIM / SKIP verdict, timestamped takeaways, and a TL;DR. A timeline is shown when the source provides a duration. This is a text view, not an embedded video player.
+The result includes a 0–5 relevance score, a WATCH / SKIM / SKIP verdict, timestamped takeaways, and a TL;DR. A timeline is shown when the source provides a duration. This is a text view, not an embedded video player. Once tx has learned who you are (`tx learn`), the review is written for you: takeaways name the projects a moment matters for.
 
 **Click to watch:** in a terminal that supports OSC 8 hyperlinks, Ctrl+click a takeaway timestamp, either end of the recommended watch range, or a position on the timeline to open that moment in your browser. In iTerm2 on macOS, use Cmd+click. The links remain usable after tx exits.
 
@@ -90,6 +90,8 @@ In this table, replace `URL` with a quoted video or episode link.
 | --- | --- |
 | Read the transcript, without AI | `tx URL` |
 | Decide whether to watch | `tx URL -q` |
+| Review several links at once | `tx URL URL URL -q` (3 at a time; `-j 5` for more) |
+| Is a whole channel worth following? | `tx channel @t3dotgg` |
 | Ask a specific question | `tx URL -a "What should I learn from this?"` |
 | Have an interactive conversation | `tx URL -c -g codex` |
 | Use Claude Haiku | `tx URL -q -g claude:haiku` |
@@ -98,7 +100,13 @@ In this table, replace `URL` with a quoted video or episode link.
 | Transcribe audio locally instead of using captions | `tx URL -w -m base` |
 | See every option | `tx --help` |
 
-**Keep the URL first.** `-q` takes an optional question; `-a` requires one. Choose one analysis mode per command: `-q`, `-a`, or `-c`. Running `tx` with no URL starts optional onboarding on first use; it is not a video review.
+**Keep the URLs first.** `-q` takes an optional question; `-a` requires one. Choose one analysis mode per command: `-q`, `-a`, or `-c`; several links work with `-q`. Running `tx` with no URL starts optional onboarding on first use; it is not a video review.
+
+### Several videos at once
+
+With several links, `tx run` and `tx channel`, tx processes 3 videos at a time and shows each one live: queued, getting its transcript, transcribing (with a percentage), analyzing, then its score and verdict, with a summary line underneath. Local Whisper transcriptions take turns, since each already uses most of your CPU. Every video is its own request to your Claude or Codex plan: more at once finishes sooner but reaches plan limits faster; `-j 1` goes one at a time.
+
+`tx channel @handle` lists every video a YouTube channel has, has your agent pick the 12 that fit you best (`--top 20` for more), analyzes those and writes a report: whether the channel is worth following for you, what to watch first with links to the right moment, what it's about, and what to skip. The report is saved next to your digests; it doesn't add the channel's videos to your brief.
 
 ### Choose your AI and model
 
@@ -177,7 +185,7 @@ Podcasts can be found by name through Apple's directory or added by RSS feed URL
 
 YouTube subscriptions can be imported from a signed-in browser or [Google Takeout](https://takeout.google.com): deselect everything, select **YouTube and YouTube Music**, then select only **subscriptions** and export. Give the resulting ZIP to your connected AI.
 
-Only uploads published after you follow a channel are screened automatically. To analyze older material explicitly:
+Only uploads published after you follow a channel are screened automatically. To judge a channel's back catalog, run `tx channel @handle` in a terminal. To analyze older material in your app:
 
 > Use tx: TL;DR of the latest 3 Fireship videos.
 
@@ -210,7 +218,7 @@ tx schedule --at 08:00
 | Stop it | `tx schedule --off` |
 | Write a digest of new analyses | `tx digest` |
 
-The OS scheduler runs `tx run`: a systemd user timer on Linux, a LaunchAgent on macOS, or Task Scheduler on Windows. Your agent checks followed channels and podcasts; tx writes a Markdown digest and sends a desktop notification if something meets your score threshold (3 by default). Your computer must be on; missed runs catch up at the next start on Linux and macOS.
+The OS scheduler runs `tx run`: a systemd user timer on Linux, a LaunchAgent on macOS, or Task Scheduler on Windows. tx checks what you follow and has your agent analyze each new upload for you, 3 at a time (up to 15 per run; the rest wait for the next). Podcast episodes without a published transcript are judged from their show notes first, so off-topic ones aren't transcribed. tx then writes a Markdown digest and the week's debrief, and sends a desktop notification if something meets your score threshold (3 by default). Run in a terminal, `tx run` shows each video's progress live. Your computer must be on; missed runs catch up at the next start on Linux and macOS.
 
 To read digests on another device, point them at a folder you already sync. For example, on macOS:
 

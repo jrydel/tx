@@ -75,7 +75,7 @@ pub struct Prompt {
 /// Prompts tx itself sends through an agent: never the user's own words.
 const TX_PROMPTS: &[&str] = &[
     "Review the video for this user's question",
-    "You are running unattended on a schedule",
+    "You are running unattended on a schedule", // scheduled screening before tx 0.20
     crate::learn::PROMPT_START,
 ];
 

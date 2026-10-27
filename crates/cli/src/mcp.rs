@@ -196,11 +196,6 @@ async fn transcript(db: &Db, video: &str) -> Result<Option<Transcript>> {
     let url = v
         .as_ref()
         .map_or_else(|| video.to_string(), |v| v.url.clone());
-    // An episode's audio URL tells yt-dlp nothing about it; the feed does.
-    let names = v
-        .as_ref()
-        .filter(|v| v.podcast)
-        .map(|v| (v.title.clone(), v.channel.clone(), v.duration));
     let mut rx = JOBS
         .lock()
         .unwrap()
@@ -208,27 +203,14 @@ async fn transcript(db: &Db, video: &str) -> Result<Option<Transcript>> {
         .or_insert_with(|| {
             let (tx, rx) = tokio::sync::watch::channel(None);
             tokio::spawn(async move {
-                let got = async {
-                    let cached = ytdlp::cache_path(&url, None, false, &model);
-                    if let Some(v) = v.filter(|v| v.transcript_url.is_some() && !cached.exists()) {
-                        match podcasts::published_transcript(&v).await {
-                            Ok(Some(t)) => {
-                                tokio::fs::write(&cached, serde_json::to_vec(&t)?).await?;
-                                return Ok(t);
-                            }
-                            Ok(None) => {}
-                            Err(e) => eprintln!(
-                                "tx: published transcript failed, transcribing instead: {e:#}"
-                            ),
-                        }
-                    }
-                    let silent: ytdlp::Progress = Box::new(|_| {});
-                    anyhow::Ok(
-                        ytdlp::load(&url, None, false, &model, false, &silent)
-                            .await?
-                            .0,
-                    )
-                }
+                let silent: ytdlp::Progress = Box::new(|_| {});
+                let got = crate::pipeline::transcript(
+                    v.as_ref(),
+                    &url,
+                    &model,
+                    &Default::default(),
+                    &silent,
+                )
                 .await;
                 let _ = tx.send(Some(got.map_err(|e| format!("{e:#}"))));
             });
@@ -240,12 +222,7 @@ async fn transcript(db: &Db, video: &str) -> Result<Option<Transcript>> {
     };
     let got = done.map_err(|_| anyhow!("transcription stopped"))?.clone();
     JOBS.lock().unwrap().remove(video);
-    let mut t = got.expect("waited for Some").map_err(|e| anyhow!(e))?;
-    if let Some((title, show, length)) = names {
-        t.title = title;
-        t.uploader = Some(show);
-        t.duration = t.duration.or(length);
-    }
+    let t = got.expect("waited for Some").map_err(|e| anyhow!(e))?;
     Ok(Some(t))
 }
 

@@ -10,8 +10,10 @@ use tx_core::{agent, captions, db, paths, report, ytdlp};
 mod agents;
 mod guide;
 mod learn;
+mod live;
 mod mcp;
 mod onboard;
+mod pipeline;
 mod review;
 mod schedule;
 mod terminal;
@@ -28,13 +30,13 @@ mod terminal_links;
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
-    /// Video URL (YouTube, X, Vimeo, TikTok, …)
-    url: Option<String>,
+    /// Video URLs (YouTube, X, Vimeo, TikTok, …); several at once work with -q
+    urls: Vec<String>,
     /// Stream a free-form answer from the selected or detected agent
     #[arg(short, long, value_name = "QUESTION", conflicts_with = "chat")]
     ask: Option<String>,
     /// Colored video review; omit QUESTION for the default worth-watching assessment
-    #[arg(short = 'q', long, num_args = 0..=1, default_missing_value = "Is this video worth watching? Which parts should I watch, and why?", value_name = "QUESTION", requires = "url", conflicts_with_all = ["ask", "chat", "no_timestamps"])]
+    #[arg(short = 'q', long, num_args = 0..=1, default_missing_value = review::WORTH_WATCHING, value_name = "QUESTION", requires = "urls", conflicts_with_all = ["ask", "chat", "no_timestamps"])]
     review: Option<String>,
     /// Color for --review (auto respects NO_COLOR and redirected output)
     #[arg(short = 'C', long, value_enum, default_value_t = ReviewColor::Auto, requires = "review")]
@@ -43,7 +45,7 @@ struct Cli {
     #[arg(short, long)]
     chat: bool,
     /// Agent and optional model: codex[:MODEL] or claude[:MODEL]; overrides TX_AGENT/TX_CHAT_AGENT
-    #[arg(short = 'g', long, value_name = "AGENT[:MODEL]", requires_all = ["url", "analysis_mode"])]
+    #[arg(short = 'g', long, value_name = "AGENT[:MODEL]", requires_all = ["urls", "analysis_mode"])]
     agent: Option<agents::Selection>,
     /// Caption/audio language code, e.g. en, cs (default: video language, then en)
     #[arg(short, long)]
@@ -60,6 +62,9 @@ struct Cli {
     /// Ignore the cached transcript
     #[arg(short, long)]
     refresh: bool,
+    /// How many links to review at once, with several and -q
+    #[arg(short = 'j', long, default_value_t = 3, value_parser = clap::value_parser!(u16).range(1..=8), requires = "review")]
+    jobs: u16,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -88,11 +93,28 @@ enum Command {
         #[arg(long)]
         data_dir: Option<std::path::PathBuf>,
     },
-    /// Screen new videos once with your agent (uses your Claude or ChatGPT subscription)
+    /// Screen new uploads of what you follow, several at a time (uses your Claude or ChatGPT subscription)
     Run {
         /// Which agent does the analysis (default: whichever is installed)
         #[arg(long, value_enum)]
         agent: Option<agents::Agent>,
+        /// How many videos at once
+        #[arg(short = 'j', long, default_value_t = 3, value_parser = clap::value_parser!(u16).range(1..=8))]
+        jobs: u16,
+    },
+    /// Is a YouTube channel worth following for you? Analyzes the videos that fit you best
+    Channel {
+        /// @handle, channel URL or channel id, e.g. @t3dotgg
+        channel: String,
+        /// How many videos to analyze
+        #[arg(long, default_value_t = 12, value_parser = clap::value_parser!(u16).range(1..=30))]
+        top: u16,
+        /// Which agent picks, analyzes and reports (default: whichever is installed)
+        #[arg(long, value_enum)]
+        agent: Option<agents::Agent>,
+        /// How many videos at once
+        #[arg(short = 'j', long, default_value_t = 3, value_parser = clap::value_parser!(u16).range(1..=8))]
+        jobs: u16,
     },
     /// Learn who you are from your Claude Code, Codex and Oh My Pi sessions, so scores fit your work
     Learn {
@@ -169,6 +191,31 @@ pub fn notify_digest(d: &report::Digest) {
     }
 }
 
+/// A colored review on stdout, as wide as the terminal.
+fn print_review(
+    t: &captions::Transcript,
+    analysis: &report::AgentAnalysis,
+    color: ReviewColor,
+) -> Result<()> {
+    let width = dialoguer::console::Term::stdout()
+        .size_checked()
+        .map_or(80, |(_, columns)| usize::from(columns));
+    let color = match color {
+        ReviewColor::Always => true,
+        ReviewColor::Never => false,
+        ReviewColor::Auto => {
+            std::io::stdout().is_terminal()
+                && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
+                && std::env::var("TERM").as_deref() != Ok("dumb")
+        }
+    };
+    let hyperlinks =
+        std::io::stdout().is_terminal() && std::env::var("TERM").as_deref() != Ok("dumb");
+    std::io::stdout()
+        .write_all(terminal::render(t, analysis, width, color, hyperlinks).as_bytes())?;
+    Ok(())
+}
+
 fn page(text: &str) -> Result<()> {
     let pager = std::env::var("PAGER").unwrap_or_else(|_| "less -FRX".into());
     let mut words = pager.split_whitespace();
@@ -209,7 +256,7 @@ async fn run(cli: Cli) -> Result<i32> {
             mcp::serve().await?;
             return Ok(0);
         }
-        Some(Command::Run { agent }) => {
+        Some(Command::Run { agent, jobs }) => {
             // YouTube breaks old yt-dlp releases; refresh tx's copy at most once a day.
             {
                 let conn = db::connect()?;
@@ -237,14 +284,20 @@ async fn run(cli: Cli) -> Result<i32> {
                 Ok(None) => {}
                 Err(e) => eprintln!("tx: couldn't refresh your profile from your sessions: {e:#}"),
             }
-            let code = tokio::task::spawn_blocking(move || agents::run(agent)).await??;
-            // Catch anything the agent analyzed but didn't put in a digest.
-            let d = report::write_digest(&db::connect()?)?;
-            notify_digest(&d);
-            if let Some(p) = &d.path {
-                eprintln!("tx: digest written to {}", p.display());
-            }
-            return Ok(code);
+            return pipeline::screen(agent, usize::from(jobs)).await;
+        }
+        Some(Command::Channel {
+            channel,
+            top,
+            agent,
+            jobs,
+        }) => {
+            let agent = match agent {
+                Some(a) => a,
+                None => agents::Agent::detect()?,
+            };
+            pipeline::channel(&channel, usize::from(top), agent, usize::from(jobs)).await?;
+            return Ok(0);
         }
         Some(Command::Learn {
             agent,
@@ -332,7 +385,67 @@ async fn run(cli: Cli) -> Result<i32> {
         }
         None => {}
     }
-    let Some(url) = cli.url else {
+    let mut urls = cli.urls;
+    if urls.len() > 1 {
+        let Some(question) = cli.review else {
+            anyhow::bail!("several links work with -q: tx <link> <link> -q");
+        };
+        let selected = agents::Selection::resolve(cli.agent.as_ref(), false)?;
+        let (profile, worth) = {
+            let conn = db::connect()?;
+            (db::profile(&conn)?, db::get_settings(&conn)?.notify_min)
+        };
+        let program = selected
+            .0
+            .file_stem()
+            .map_or_else(|| "agent".into(), |s| s.to_string_lossy().into_owned());
+        let jobs: Vec<pipeline::Job> = urls
+            .iter()
+            .map(|u| pipeline::Job {
+                url: u.clone(),
+                source: url::Url::parse(u)
+                    .ok()
+                    .and_then(|p| {
+                        p.host_str()
+                            .map(|h| h.trim_start_matches("www.").to_string())
+                    })
+                    .unwrap_or_else(|| "link".into()),
+                title: u.clone(),
+                video: None,
+            })
+            .collect();
+        let batch = pipeline::Batch {
+            header: format!(
+                "tx · {} links · {} at a time · {program}",
+                urls.len(),
+                urls.len().min(usize::from(cli.jobs))
+            ),
+            question,
+            profile,
+            selected,
+            model: cli.model.clone(),
+            fetch: pipeline::Fetch {
+                lang: cli.lang.clone(),
+                whisper: cli.whisper,
+                refresh: cli.refresh,
+            },
+            jobs: usize::from(cli.jobs),
+        };
+        let results = pipeline::run_jobs(jobs, batch, i64::from(worth)).await;
+        let mut failed = 0;
+        for (url, r) in urls.iter().zip(results) {
+            match r {
+                Ok(Some((t, a))) => print_review(&t, &a, cli.color)?,
+                Ok(None) => {}
+                Err(e) => {
+                    failed += 1;
+                    eprintln!("tx: {url}: {e:#}");
+                }
+            }
+        }
+        return Ok(i32::from(failed == urls.len()));
+    }
+    let Some(url) = urls.pop() else {
         // A bare `tx` walks through setup until it's done, then shows where you stand.
         use std::io::IsTerminal;
         let needs_setup = guide::needs_setup(&std::sync::Mutex::new(db::connect()?))?;
@@ -361,24 +474,9 @@ async fn run(cli: Cli) -> Result<i32> {
     if let Some(question) = cli.review {
         eprintln!("tx: transcript ready, reviewing with your agent…");
         let selected = agents::Selection::resolve(cli.agent.as_ref(), false)?;
-        let analysis = review::analyze(&t, &text, &question, selected).await?;
-        let term = dialoguer::console::Term::stdout();
-        let width = term
-            .size_checked()
-            .map_or(80, |(_, columns)| usize::from(columns));
-        let color = match cli.color {
-            ReviewColor::Always => true,
-            ReviewColor::Never => false,
-            ReviewColor::Auto => {
-                std::io::stdout().is_terminal()
-                    && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
-                    && std::env::var("TERM").as_deref() != Ok("dumb")
-            }
-        };
-        let hyperlinks =
-            std::io::stdout().is_terminal() && std::env::var("TERM").as_deref() != Ok("dumb");
-        std::io::stdout()
-            .write_all(terminal::render(&t, &analysis, width, color, hyperlinks).as_bytes())?;
+        let profile = db::profile(&db::connect()?)?;
+        let analysis = review::analyze(&t, &text, &question, &profile, selected).await?;
+        print_review(&t, &analysis, cli.color)?;
         return Ok(0);
     }
 

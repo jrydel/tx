@@ -173,66 +173,8 @@ mod selection_tests {
 /// The screen-videos skill, minus its frontmatter.
 const SKILL: &str = include_str!("../../../plugin/skills/screen-videos/SKILL.md");
 
-pub fn screening_prompt() -> String {
-    let body = SKILL.splitn(3, "---").nth(2).unwrap_or(SKILL).trim();
-    format!(
-        "You are running unattended on a schedule; do not ask questions, just complete the steps.\n\n{body}"
-    )
-}
-
 fn exe() -> Result<PathBuf> {
     Ok(std::env::current_exe()?.canonicalize()?)
-}
-
-/// Screen new videos once with `agent`, streaming its output; returns its exit code.
-pub fn run(agent: Agent) -> Result<i32> {
-    let program = agent
-        .find()
-        .with_context(|| format!("{} is not installed", agent.program()))?;
-    let tx = exe()?.display().to_string();
-    let data = paths::data_dir().display().to_string();
-    let prompt = screening_prompt();
-    let mut cmd = Command::new(program);
-    match agent {
-        Agent::Claude => {
-            let config = serde_json::json!({ "mcpServers": { "tx": { "command": tx, "args": ["mcp", "--data-dir", data] } } });
-            cmd.args([
-                "-p",
-                &prompt,
-                "--mcp-config",
-                &config.to_string(),
-                "--strict-mcp-config",
-                "--allowedTools",
-                "mcp__tx",
-            ]);
-        }
-        Agent::Codex => {
-            cmd.args(["exec", "--skip-git-repo-check", "--sandbox", "read-only"])
-                .args([
-                    "-c",
-                    &format!("mcp_servers.tx.command={}", serde_json::to_string(&tx)?),
-                ])
-                .args([
-                    "-c",
-                    &format!(
-                        "mcp_servers.tx.args={}",
-                        serde_json::to_string(&["mcp", "--data-dir", &data])?
-                    ),
-                ])
-                .args([
-                    "-c",
-                    r#"mcp_servers.tx.default_tools_approval_mode="approve""#,
-                ])
-                .arg(&prompt);
-        }
-    }
-    let status = cmd
-        .current_dir(paths::data_dir())
-        .env("PATH", paths::search_path())
-        .stdin(Stdio::null())
-        .status()
-        .with_context(|| format!("starting {}", agent.program()))?;
-    Ok(status.code().unwrap_or(1))
 }
 
 pub fn claude_desktop_config() -> Option<PathBuf> {

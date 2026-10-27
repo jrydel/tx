@@ -2607,7 +2607,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tx-cli"
-version = "0.19.2"
+version = "0.20.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -2615,6 +2615,7 @@ dependencies = [
  "clap",
  "dialoguer",
  "dirs",
+ "log",
  "notify-rust",
  "serde_json",
  "tempfile",
@@ -2626,7 +2627,7 @@ dependencies = [
 
 [[package]]
 name = "tx-core"
-version = "0.19.2"
+version = "0.20.0"
 dependencies = [
  "anyhow",
  "bzip2",

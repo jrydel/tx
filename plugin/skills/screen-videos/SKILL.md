@@ -1,13 +1,13 @@
 ---
 name: screen-videos
-description: Check the YouTube channels and podcasts watched in tx for new uploads and analyze each against the user's profile (0-5 score, TL;DR, timestamped takeaways, whether to watch), then write a digest. Use when the user asks what's new or worth watching or hearing from their channels and shows, wants a video or episode TL;DR, or when running on a schedule.
+description: Check the YouTube channels and podcasts watched in tx for new uploads and analyze each against the user's profile (0-5 score, TL;DR, timestamped takeaways, whether to watch), then write a digest. Use when the user asks what's new or worth watching or hearing from their channels and shows, or wants a video or episode TL;DR.
 ---
 
 # Screen new videos with tx
 
 tx (MCP server `tx`) fetches YouTube videos and podcast episodes on this computer; you do the analysis. "Video" below means either. Follow these steps.
 
-When you're talking with the user (not on a schedule), start with `status` and guide them to its next step. While setup isn't finished (no profile, nothing followed), show the `onboarding` panel instead of asking in chat; after they import channels, read `list_channels` and call `onboarding` with `suggest` (the ids that fit their profile, a few words why each).
+Start with `status` and guide the user to its next step. While setup isn't finished (no profile, nothing followed), show the `onboarding` panel instead of asking in chat; after they import channels, read `list_channels` and call `onboarding` with `suggest` (the ids that fit their profile, a few words why each). The daily brief runs without you: `tx run` screens new uploads itself on a schedule.
 
 1. Call `get_profile`. It says who the user is and what they want to learn. It may end with what tx learned from their recent coding-agent sessions: the projects they're working on now, their stack, and what they already know. If it is empty and you can ask the user, ask for 2-3 sentences and save them with `set_profile`, or offer to learn it from their coding-agent sessions (see Learning who they are); otherwise judge usefulness for a curious technical generalist.
 2. Call `check_new_videos`. It checks watched channels and returns uploads waiting for analysis. If no channels are watched, offer to import the user's YouTube subscriptions (see Choosing channels) or to watch channels they name (`watch_channel` takes `@handle`s, channel URLs, or video URLs), and stop.
@@ -30,6 +30,8 @@ When the user asks for a TL;DR of specific or recent videos ("the latest Fireshi
 1. Call `get_profile` (unless you already have it in this conversation): scores, verdicts and takeaways are always for this person. Then find the videos with `recent_videos` (pass part of the channel name). For a channel tx doesn't know, `watch_channel` it first (the user asked about it, so that counts as choosing it). A video URL from a channel tx doesn't know can't be stored: use `get_transcript` with the URL and write the TL;DR, takeaways for the user (with timestamps) and watch advice in your reply.
 2. Videos already analyzed (status `done`) need no new analysis unless the user asks to redo them. For each other one, `get_transcript` and `save_analysis` exactly as in step 3 above, so it's stored and never redone.
 3. Call `show_videos` with their ids, then reply in at most two sentences.
+
+tx only knows a channel's latest uploads. When the user wants a whole channel judged ("is Theo worth following?", "the best of Fireship for me"), analyze its latest few here, and tell them `tx channel @handle` in a terminal goes through the whole catalog: it picks the videos that fit them, analyzes them several at a time and writes a report.
 
 ## Learning who they are
 

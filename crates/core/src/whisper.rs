@@ -33,6 +33,12 @@ async fn model_path(name: &str, progress: &Progress) -> Result<PathBuf> {
     if path.is_file() {
         return Ok(path);
     }
+    // Two transcriptions starting at once would download the same model into the same .part file.
+    static DOWNLOAD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _one = DOWNLOAD.lock().await;
+    if path.is_file() {
+        return Ok(path);
+    }
     tokio::fs::create_dir_all(&dir).await?;
     let url = format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{file}");
     let resp = reqwest::get(&url).await?.error_for_status()?;
@@ -209,6 +215,15 @@ pub async fn transcribe(
     let tmp = tempfile::tempdir()?;
     progress("downloading audio…");
     let audio_file = download_audio(url, item, tmp.path()).await?;
+    // Whisper already uses most cores; two at once only makes both slower. Downloads overlap.
+    static ONE_AT_A_TIME: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+    let _turn = match ONE_AT_A_TIME.try_acquire() {
+        Ok(turn) => turn,
+        Err(_) => {
+            progress("waiting for another transcription…");
+            ONE_AT_A_TIME.acquire().await?
+        }
+    };
     let audio = tokio::task::spawn_blocking(move || decode(&audio_file)).await??;
     if audio.is_empty() {
         bail!("the audio track is empty");

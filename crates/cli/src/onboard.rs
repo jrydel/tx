@@ -385,7 +385,7 @@ pub async fn run() -> Result<()> {
             println!("  {} checking for uploads failed: {e:#}", style("✗").red());
         }
         db::queue_first_brief(&db.lock().unwrap(), 1)?;
-        agents::run(agent)?;
+        crate::pipeline::screen(agent, 3).await?;
     }
     Ok(())
 }
