@@ -9,10 +9,10 @@ import { SITE_URL } from "@/lib/site"
 
 import appCss from "../styles.css?url"
 
-const TITLE = "tx: know if a video is worth watching before you watch it"
+const TITLE = "tx: is this video worth watching?"
 const DESCRIPTION =
-  "Paste a video or podcast link. tx gives you a WATCH, SKIM or SKIP verdict and timestamped takeaways from your own Claude or Codex, and saves them as Markdown. Open source, runs locally."
-const OG_TITLE = "tx: turn videos and podcasts into knowledge you keep"
+  "Paste a video or podcast link. tx gives you a WATCH, SKIM or SKIP verdict and timestamped takeaways from your own Claude or Codex. Open source, runs on your computer."
+const OG_TITLE = "tx: is this video worth watching?"
 const OG_IMAGE = `${SITE_URL}/og-image.png`
 const OG_ALT =
   "tx video review in a terminal: a SKIM verdict, 4/5 relevance score and a timeline of the part worth watching."

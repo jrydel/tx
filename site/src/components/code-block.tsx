@@ -78,11 +78,11 @@ export function CodeBlock({
   return (
     <div
       className={cn(
-        "flex items-start gap-2 rounded-xl border border-border-strong bg-muted py-1.5 pr-1.5 pl-3.5 font-mono text-[13px]",
+        "flex items-start gap-2 rounded-xl border border-border-strong bg-background py-1.5 pr-1.5 pl-3.5 font-mono text-[13px]",
         className
       )}
     >
-      <span aria-hidden="true" className="py-1 text-amber select-none">
+      <span aria-hidden="true" className="py-1 text-cyan select-none">
         {prompt}
       </span>
       <code

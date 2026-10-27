@@ -8,7 +8,7 @@ export function ReviewTerminal({ className }: { className?: string }) {
   return (
     <figure
       className={cn(
-        "term overflow-hidden rounded-2xl font-mono text-[12.5px] leading-[1.65] shadow-(--shadow-card) sm:text-[13px]",
+        "term overflow-hidden rounded-2xl font-mono text-[12.5px] leading-[1.7] shadow-(--shadow-term) sm:text-[14px] xl:text-[15px]",
         className
       )}
     >
@@ -27,7 +27,7 @@ export function ReviewTerminal({ className }: { className?: string }) {
         </span>
       </div>
 
-      <div className="px-4 pt-4 pb-5 sm:px-5">
+      <div className="px-4 pt-4 pb-6 sm:px-7 sm:pt-5 sm:pb-8">
         <p className="mb-3 text-[11px]" style={{ color: "var(--t-grey)" }}>
           REAL tx 0.20.0 OUTPUT · example profile
         </p>
@@ -41,7 +41,7 @@ export function ReviewTerminal({ className }: { className?: string }) {
           <span
             aria-hidden="true"
             className="h-px flex-1"
-            style={{ background: "#4a4f51" }}
+            style={{ background: "var(--t-line)" }}
           />
         </div>
 
@@ -74,7 +74,7 @@ export function ReviewTerminal({ className }: { className?: string }) {
           <div
             role="img"
             aria-label="Timeline of 00:00 to 05:03; the worth-watching part runs 01:47 to 04:44"
-            className="mt-1 flex h-3.5 w-full"
+            className="mt-1.5 flex h-4 w-full"
           >
             <span className="term-bar-hatch" style={{ flex: "107 0 0" }} />
             <span className="term-bar-fill" style={{ flex: "177 0 0" }} />
