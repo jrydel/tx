@@ -57,8 +57,6 @@ esac
 # Set up right away when a person is at the terminal (`curl … | sh` keeps the terminal on /dev/tty).
 # A bare `tx` walks through setup until it's done, then just shows where you stand, so upgrades are quiet.
 if [ -z "${TX_NO_SETUP:-}" ] && [ -t 1 ] && { : </dev/tty; } 2>/dev/null; then
-  echo
-  echo "Setting tx up now. Skip with Ctrl+C; run $tx any time to continue."
   "$dir/tx" </dev/tty || true
 else
   cat <<EOF

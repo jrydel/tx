@@ -162,6 +162,7 @@ pub fn home() -> Result<()> {
     let debrief = debrief::current(&conn)?;
     let channels = db::channels(&conn)?;
     let waiting = db::pending(&conn)?.len();
+    let learned = db::learned(&conn)?;
     drop(conn);
     let watched: Vec<&db::Channel> = channels.iter().filter(|c| c.enabled).collect();
     let shows = watched.iter().filter(|c| c.podcast).count();
@@ -195,8 +196,12 @@ pub fn home() -> Result<()> {
             }
         )),
         tick(match shows {
-            0 => format!("Following {} channels", watched.len()),
-            s => format!("Following {} channels and {s} podcasts", watched.len() - s),
+            0 => format!("Following {}", count(watched.len(), "channel")),
+            s => format!(
+                "Following {} and {}",
+                count(watched.len() - s, "channel"),
+                count(s, "podcast")
+            ),
         }),
         if schedule::scheduled() {
             tick("A brief every morning".into())
@@ -207,6 +212,27 @@ pub fn home() -> Result<()> {
             ))
         },
     ]);
+    match &learned {
+        Some(l) => lines.insert(
+            lines.len() - 1,
+            tick(format!(
+                "Learned from your coding sessions {}",
+                style(format!(
+                    "(updated {}; tx learn --show)",
+                    l.at.get(..10).unwrap_or(&l.at)
+                ))
+                .dim()
+            )),
+        ),
+        None if tx_core::sessions::available() => lines.insert(
+            lines.len() - 1,
+            open(format!(
+                "Not learned from your coding sessions yet {}",
+                style("(tx learn)").dim()
+            )),
+        ),
+        None => {}
+    }
     if waiting > 0 {
         lines.push(open(format!(
             "{waiting} new videos waiting {}",
@@ -223,16 +249,26 @@ pub fn home() -> Result<()> {
     card("tx", &lines);
     println!();
     for (cmd, what) in [
-        ("tx onboard", "change your setup"),
+        (
+            "tx <link> -q",
+            "should you watch it: verdict, best part, takeaways",
+        ),
         ("tx <link>", "transcript of any video or episode"),
+        ("tx learn", "learn who you are from your coding sessions"),
+        ("tx onboard", "change your setup"),
         ("tx run", "screen new uploads now, in this terminal"),
         ("tx reset", "start over as a new user"),
         ("tx --help", "everything else"),
     ] {
-        println!("  {:<12} {}", style(cmd).bold(), style(what).dim());
+        println!("  {:<14} {}", style(cmd).bold(), style(what).dim());
     }
     println!();
     Ok(())
+}
+
+/// "1 channel", "3 channels".
+fn count(n: usize, word: &str) -> String {
+    format!("{n} {word}{}", if n == 1 { "" } else { "s" })
 }
 
 /// Start over: forget the profile and what's followed, and turn off the daily brief, so the next
@@ -294,9 +330,11 @@ pub async fn run() -> Result<()> {
         "tx",
         &[
             "Don't watch the video. Read it, then decide.".into(),
-            style("Four questions, about two minutes. Change anything later with `tx onboard`.")
-                .dim()
-                .to_string(),
+            style(
+                "Four questions, about two minutes. Ctrl+C stops; run `tx` any time to continue.",
+            )
+            .dim()
+            .to_string(),
         ],
     );
 

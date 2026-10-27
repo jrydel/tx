@@ -34,7 +34,7 @@ Open a new terminal if the installer added tx to your PATH, then check:
 tx --version
 ```
 
-Run in a terminal, the installer then starts the guided setup (`tx onboard`): your AI apps, what you want to learn (tx can learn it from your coding-agent sessions), what to follow, and a daily brief. **You can skip it with Ctrl+C for the single-link commands below**, or set `TX_NO_SETUP=1` before installing. No daily brief, plugin, or environment variable is required.
+Run in a terminal, the installer then starts the guided setup (`tx onboard`): your AI apps, what you want to learn (tx can learn it from your coding-agent sessions), what to follow, and a daily brief. If tx is already set up, as when you upgrade, it shows where you stand instead. **You can skip setup with Ctrl+C for the single-link commands below**, or set `TX_NO_SETUP=1` before installing. No daily brief, plugin, or environment variable is required.
 
 ### 2. Try a video
 
