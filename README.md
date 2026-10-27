@@ -15,11 +15,13 @@ Open source, MIT licensed. Runs locally on macOS, Linux, and Windows. No tx acco
 
 ## Watch the tutorial
 
-[![Watch the 99-second tx tutorial: install, personalize, review videos, and set up a brief](.github/assets/tx-tutorial.jpg)](https://github.com/jrydel/tx/releases/download/v0.20.0/tx-tutorial.mp4)
+https://github.com/user-attachments/assets/2aacbddb-5d13-4967-b7b4-f689db968955
 
-**[Watch or download the tutorial (MP4, 99 seconds, 5.7 MiB)](https://github.com/jrydel/tx/releases/download/v0.20.0/tx-tutorial.mp4)** — silent, with on-screen instructions. Uses real tx 0.20.0 review results with an example profile; typing is recreated and waits are shortened. Setup and scheduling scenes show commands to run, not a timer being enabled.
+**[Download the tutorial (MP4, 74 seconds)](https://github.com/user-attachments/assets/2aacbddb-5d13-4967-b7b4-f689db968955)** — one continuous terminal session: install and finish setup, then try the use cases. Real tx 0.20.0 and Claude Code output with an example profile; silent, with captions, sped-up typing and shortened waits.
 
-Chapters: **0:00** install · **0:07** add context · **0:21** review one video · **0:44** review several · **0:59** evaluate a channel · **1:13** follow sources · **1:19** screen new uploads · **1:25** optional daily schedule.
+Steps: **0:00** install · **0:03** connect Claude Code · **0:07** describe your interests · **0:12** follow a source · **0:19** decline the optional schedule · **0:21** screen the first upload. Use cases: **0:30** review one video · **0:39** review several · **0:57** evaluate a channel.
+
+Claude Code is already installed and signed in. Capture uses an isolated temporary home (visible `/tmp` paths) and preinstalled transcript helpers. No daily timer is enabled. The channel report samples the best-fitting videos from at most the newest 400; it does not analyze every upload.
 
 ## Quick start
 
