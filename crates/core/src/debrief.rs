@@ -310,7 +310,7 @@ pub fn request(conn: &Connection) -> Result<String> {
     let Some(videos) = due(conn)? else {
         return Ok("No debrief needed: the week's analyzed videos haven't changed since the last one (or there are fewer than two).".into());
     };
-    let profile = db::get_settings(conn)?.profile;
+    let profile = db::profile(conn)?;
     let mut s = format!(
         "Now write the debrief: the {} videos from the last {DAYS} days that you or earlier runs analyzed, below.\n\nProfile: {}\n",
         videos.len(),

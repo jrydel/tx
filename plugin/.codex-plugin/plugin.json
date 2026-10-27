@@ -1,6 +1,6 @@
 {
   "name": "tx",
-  "version": "0.18.2",
+  "version": "0.19.0",
   "description": "Watch YouTube channels and podcasts and get TL;DRs of new uploads scored against what you want to learn. tx fetches transcripts on your computer; Codex does the analysis.",
   "author": { "name": "Jiří Rýdel", "url": "https://github.com/jrydel" },
   "license": "MIT",
@@ -14,7 +14,7 @@
     "capabilities": ["Read", "Write"],
     "websiteURL": "https://github.com/jrydel/tx",
     "defaultPrompt": [
-      "Use tx: set my profile to who I am and what I want to learn, then watch @fireship.",
+      "Use tx: learn who I am from my coding-agent sessions, then watch @fireship.",
       "Use tx to check my channels for new videos, analyze them for me and write the digest.",
       "Use tx to get the transcript of this video and give me a 3-bullet TL;DR: "
     ]

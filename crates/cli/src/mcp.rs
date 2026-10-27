@@ -14,7 +14,8 @@ use tx_core::captions::Transcript;
 use tx_core::db::{self, Db};
 use tx_core::debrief;
 use tx_core::report::{self, AgentAnalysis};
-use tx_core::{captions, feeds, podcasts, tts, ytdlp};
+use tx_core::sessions::{self, Activity};
+use tx_core::{captions, feeds, learn, podcasts, tts, ytdlp};
 
 /// Transcript parts stay under typical MCP tool-output limits (~25k tokens).
 const PART_CHARS: usize = 60_000;
@@ -25,7 +26,9 @@ podcast episode that clearly doesn't fit from its title and notes), then write_d
 one. For a channel's or show's latest use get_profile, then recent_videos. Every analysis is for the profile's owner. Show \
 results to the user with show_videos: without ids it is their brief for the last 7 days, with the debrief on top; pass ids \
 only to show specific videos. At the start of a conversation about tx, call status and guide the user to its next step; \
-while setup isn't finished, show the onboarding panel. The screen-videos skill has the full procedure and scoring rubric.";
+while setup isn't finished, show the onboarding panel. When the user asks tx to learn who they are (or what they work on), \
+call learn_from_sessions, write the profile it asks for, save it with save_learned_profile and show it to them. The \
+screen-videos skill has the full procedure and scoring rubric.";
 
 /// How long get_transcript waits for a transcription before telling the agent to come back; under
 /// the tool-call timeouts of common hosts, while the transcription keeps running.
@@ -81,10 +84,16 @@ fn tools() -> Value {
             "text": { "type": "string", "maxLength": 400 },
             "lang": { "type": "string", "enum": ["en", "cs"], "default": "en" } }, "required": ["text"] },
           "_meta": { "ui": { "visibility": ["app"] } } },
-        { "name": "get_profile", "description": "Who the user is and what they want to learn, plus the score that counts as worth their time.",
+        { "name": "get_profile", "description": "Who the user is and what they want to learn, in their own words and, if they turned it on with `tx learn`, what tx learned from their recent coding-agent sessions (what they work on now). Plus the score that counts as worth their time.",
           "inputSchema": { "type": "object", "properties": {} } },
-        { "name": "set_profile", "description": "Save the user's description of who they are and what they want to learn.",
+        { "name": "set_profile", "description": "Save the user's own description of who they are and what they want to learn. It doesn't change what tx learned from their sessions (`tx learn`).",
           "inputSchema": { "type": "object", "properties": { "profile": { "type": "string" } }, "required": ["profile"] } },
+        { "name": "learn_from_sessions", "description": "Learn who the user is from their coding-agent sessions on this computer (Claude Code, Codex, Oh My Pi): returns redacted excerpts of what they typed over the last `days` days, grouped by project, with instructions for writing a short profile (what they work on now, strengths, what to keep up with). Call it only when the user asks tx to learn who they are, or from the setup panel; the excerpts reach your provider. Then save the profile with save_learned_profile.",
+          "inputSchema": { "type": "object", "properties": { "days": { "type": "integer", "minimum": 1, "maximum": 365, "default": 30 } } } },
+        { "name": "save_learned_profile", "description": "Save the profile you wrote from learn_from_sessions. Every analysis is then scored for it, and scheduled runs (`tx run`) refresh it every 7 days. An empty profile forgets it.",
+          "inputSchema": { "type": "object", "properties": {
+            "profile": { "type": "string", "description": "The profile in exactly the format learn_from_sessions asked for" },
+            "days": { "type": "integer", "minimum": 1, "maximum": 365, "default": 30, "description": "The days you passed to learn_from_sessions" } }, "required": ["profile"] } },
         { "name": "watch_channel", "description": "Start watching YouTube channels and podcasts. Only uploads published from now on are analyzed automatically; recent_videos still lists earlier ones.",
           "inputSchema": { "type": "object", "properties": { "channels": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Each an @handle, channel URL, channel or show id (from list_channels), a URL of one of its videos, or a podcast feed URL (from find_podcasts)" } }, "required": ["channels"] } },
         { "name": "find_podcasts", "description": "Search Apple's podcast directory by name or topic; returns shows with their feed URLs for watch_channel.",
@@ -243,10 +252,13 @@ async fn transcript(db: &Db, video: &str) -> Result<Option<Transcript>> {
 async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
     Ok(match name {
         "get_profile" => {
-            let s = db::get_settings(&db.lock().unwrap())?;
-            serde_json::to_string_pretty(
-                &json!({ "profile": s.profile, "worth_your_time_from_score": s.notify_min }),
-            )?
+            let conn = db.lock().unwrap();
+            let learned = db::learned(&conn)?;
+            serde_json::to_string_pretty(&json!({
+                "profile": db::profile(&conn)?,
+                "learned_from_sessions_at": learned.map(|l| l.at),
+                "worth_your_time_from_score": db::get_settings(&conn)?.notify_min,
+            }))?
         }
         "set_profile" => {
             let conn = db.lock().unwrap();
@@ -254,6 +266,36 @@ async fn call(db: &Db, name: &str, args: &Value) -> Result<String> {
             s.profile = str_arg(args, "profile")?.trim().to_string();
             db::save_settings(&conn, &s)?;
             "Saved.".into()
+        }
+        "learn_from_sessions" => {
+            let days = args["days"].as_u64().unwrap_or(30).clamp(1, 365) as u32;
+            let now = chrono::Utc::now();
+            let prompts = tokio::task::spawn_blocking(move || sessions::collect(days, now)).await?;
+            let activity = Activity::summarize(prompts, days, now);
+            if activity.excerpts() == 0 {
+                bail!(
+                    "no prompts of theirs from the last {days} days in Claude Code, Codex or Oh My Pi sessions on this computer; ask them to describe themselves instead and save it with set_profile"
+                );
+            }
+            let about = db::get_settings(&db.lock().unwrap())?.profile;
+            format!(
+                "{}\n\nThen call save_learned_profile with that profile and days={days}, show it to the user in full, and tell them \
+                 they can ask for changes or to forget it. If they're setting tx up, call onboarding next.\n\n---\n\n{}",
+                learn::prompt(days, &about, learn::Material::Below),
+                activity.render()
+            )
+        }
+        "save_learned_profile" => {
+            let text = args["profile"].as_str().context("profile is required")?;
+            let days = args["days"].as_u64().unwrap_or(30).clamp(1, 365) as u32;
+            let conn = db.lock().unwrap();
+            if text.trim().is_empty() {
+                db::forget_learned(&conn)?;
+                "Forgot what tx learned from their sessions; it won't be refreshed.".into()
+            } else {
+                db::save_learned(&conn, &learn::profile(text)?, days)?;
+                "Saved. Every analysis is now scored for it, and scheduled runs refresh it every 7 days.".into()
+            }
         }
         "watch_channel" => {
             let refs: Vec<&str> = args["channels"]
@@ -505,7 +547,7 @@ fn debrief_markdown(d: &debrief::Debrief, videos: &[db::Video]) -> String {
 /// latest analyzed videos when the week has none.
 fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
     let conn = db.lock().unwrap();
-    let settings = db::get_settings(&conn)?;
+    let profile = db::profile(&conn)?;
     let min_relevance = args["min_relevance"].as_i64().unwrap_or(0);
     let mut days = None;
     let mut videos: Vec<db::Video> = match args["video_ids"].as_array() {
@@ -671,8 +713,7 @@ fn show_videos(db: &Db, args: &Value, ui: bool) -> Result<Value> {
             debrief_md.unwrap_or_default()
         )
     };
-    let mut structured =
-        json!({ "videos": cards, "profile": settings.profile, "debrief": debrief });
+    let mut structured = json!({ "videos": cards, "profile": profile, "debrief": debrief });
     if let Some(days) = days {
         structured["days"] = json!(days);
     }
@@ -783,10 +824,12 @@ async fn handle(db: &Db, session: &mut Session, msg: &Value) -> Option<Value> {
                 _ => call(db, name, args).await.map(text),
             };
             // First use in an app: until setup is done, steer the agent to the setup panel.
-            const SETUP: [&str; 14] = [
+            const SETUP: [&str; 16] = [
                 "status",
                 "onboarding",
                 "set_profile",
+                "learn_from_sessions",
+                "save_learned_profile",
                 "get_profile",
                 "watch_channel",
                 "unwatch_channel",

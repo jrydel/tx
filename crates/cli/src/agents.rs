@@ -131,6 +131,17 @@ impl Selection {
     }
 }
 
+impl Agent {
+    /// Its non-interactive command with the default model, for one-shot answers.
+    pub(crate) fn one_shot(self) -> Result<(PathBuf, Vec<String>)> {
+        Selection {
+            agent: self,
+            model: None,
+        }
+        .command(false)
+    }
+}
+
 #[cfg(test)]
 mod selection_tests {
     use super::*;

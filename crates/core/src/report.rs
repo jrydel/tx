@@ -229,6 +229,12 @@ pub fn write_digest(conn: &Connection) -> Result<Digest> {
         videos.len(),
         worth.len()
     ));
+    if let Some(l) = db::learned(conn)? {
+        md.push_str(&format!(
+            "Scored for your profile, including what tx learned from your coding-agent sessions (updated {}).\n\n",
+            l.at.get(..10).unwrap_or(&l.at)
+        ));
+    }
     for v in &worth {
         md.push_str(&entry(v, true));
     }

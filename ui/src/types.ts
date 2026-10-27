@@ -54,7 +54,13 @@ export interface Script {
   segments: {
     video_id: string
     intro: string
-    parts: { say: string; moment_from: string; moment_to: string; moment_start: number; moment_end: number }[]
+    parts: {
+      say: string
+      moment_from: string
+      moment_to: string
+      moment_start: number
+      moment_end: number
+    }[]
   }[]
   outro?: string | null
 }
@@ -88,6 +94,10 @@ export interface OnboardingData {
   channels: Channel[]
   daily_brief: boolean
   can_schedule: boolean
+  /** Claude Code, Codex or Oh My Pi keep sessions on this computer, so tx can learn from them. */
+  can_learn: boolean
+  /** What tx learned from those sessions, if the user turned it on. */
+  learned: { at: string; days: number } | null
 }
 
 export interface SourceResult {
@@ -111,7 +121,11 @@ export interface ToolResult {
 }
 
 export const isOnboarding = (d: unknown): d is OnboardingData =>
-  !!d && typeof d === "object" && (d as { view?: unknown }).view === "onboarding"
+  !!d &&
+  typeof d === "object" &&
+  (d as { view?: unknown }).view === "onboarding"
 
 export const isBrief = (d: unknown): d is BriefData =>
-  !!d && typeof d === "object" && Array.isArray((d as { videos?: unknown }).videos)
+  !!d &&
+  typeof d === "object" &&
+  Array.isArray((d as { videos?: unknown }).videos)

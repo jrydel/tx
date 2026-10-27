@@ -185,6 +185,73 @@ pub fn set_value(conn: &Connection, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// What tx learned about the user from their coding-agent sessions (`tx learn`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Learned {
+    pub text: String,
+    /// RFC 3339.
+    pub at: String,
+    /// How many days of sessions it was learned from, reused when it's refreshed.
+    pub days: u32,
+}
+
+pub fn learned(conn: &Connection) -> Result<Option<Learned>> {
+    let Some(text) = get_value(conn, "learned_profile")? else {
+        return Ok(None);
+    };
+    Ok(Some(Learned {
+        text,
+        at: get_value(conn, "learned_at")?.unwrap_or_default(),
+        days: get_value(conn, "learned_days")?
+            .and_then(|d| d.parse().ok())
+            .unwrap_or(30),
+    }))
+}
+
+pub fn save_learned(conn: &Connection, text: &str, days: u32) -> Result<()> {
+    set_value(conn, "learned_profile", text)?;
+    set_value(conn, "learned_at", &now())?;
+    set_value(conn, "learned_days", &days.to_string())
+}
+
+pub fn forget_learned(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "DELETE FROM settings WHERE key IN ('learned_profile', 'learned_at', 'learned_days')",
+        [],
+    )?;
+    Ok(())
+}
+
+/// Whether a learned profile is older than `days` (or its date is unreadable), so `tx run` should
+/// refresh it. Nothing learned means nothing to refresh: learning is opt-in through `tx learn`.
+pub fn learned_is_stale(learned: &Learned, days: i64) -> bool {
+    chrono::DateTime::parse_from_rfc3339(&learned.at)
+        .ok()
+        .is_none_or(|t| chrono::Utc::now().signed_duration_since(t).num_days() >= days)
+}
+
+/// Who every analysis is for: the user's own description, then what tx learned from their
+/// sessions. Empty when there's neither.
+pub fn profile(conn: &Connection) -> Result<String> {
+    let own = get_settings(conn)?.profile;
+    let own = own.trim();
+    Ok(match learned(conn)? {
+        Some(l) => {
+            let date = l.at.get(..10).unwrap_or(&l.at);
+            let learned = format!(
+                "From your coding-agent sessions (updated {date}):\n{}",
+                l.text.trim()
+            );
+            if own.is_empty() {
+                learned
+            } else {
+                format!("{own}\n\n{learned}")
+            }
+        }
+        None => own.to_string(),
+    })
+}
+
 /// Store an analysis written by the user's own agent (MCP flow). False if the video is unknown.
 pub fn save_analysis(
     conn: &Connection,
@@ -315,6 +382,23 @@ pub fn video(conn: &Connection, id: &str) -> Result<Option<Video>> {
         "SELECT {VIDEO_COLS} FROM videos v JOIN channels c ON c.id = v.channel_id WHERE v.id = ?1"
     );
     Ok(conn.query_row(&sql, params![id], video_row).optional()?)
+}
+
+/// For a first brief: queue the newest `per_channel` uploads of each followed channel that has
+/// nothing analyzed or waiting yet. Normally only uploads after following are screened, so right
+/// after setup there'd be nothing to show. Returns how many were queued.
+pub fn queue_first_brief(conn: &Connection, per_channel: i64) -> Result<usize> {
+    Ok(conn.execute(
+        "UPDATE videos SET status = 'queued' WHERE id IN (
+           SELECT id FROM (
+             SELECT v.id, ROW_NUMBER() OVER (PARTITION BY v.channel_id ORDER BY v.published DESC) AS n
+             FROM videos v JOIN channels c ON c.id = v.channel_id
+             WHERE c.enabled = 1 AND v.status = 'skipped'
+               AND NOT EXISTS (SELECT 1 FROM videos o WHERE o.channel_id = v.channel_id
+                               AND o.status IN ('queued', 'working', 'done', 'error'))
+           ) WHERE n <= ?1)",
+        params![per_channel],
+    )?)
 }
 
 /// Videos waiting for analysis, oldest first. `working` rows come from older tx versions'
@@ -470,6 +554,45 @@ mod tests {
     }
 
     #[test]
+    fn learned_profile_follows_the_users_own_words_and_can_be_forgotten() {
+        let conn = memory();
+        assert_eq!(profile(&conn).unwrap(), "");
+        save_learned(&conn, "Working on now:\n- tx", 14).unwrap();
+        let only = profile(&conn).unwrap();
+        assert!(only.starts_with("From your coding-agent sessions (updated 20"));
+        assert!(only.ends_with("Working on now:\n- tx"));
+        let mut s = get_settings(&conn).unwrap();
+        s.profile = "Founder, Prague. Skip crypto.".into();
+        save_settings(&conn, &s).unwrap();
+        let both = profile(&conn).unwrap();
+        assert!(
+            both.starts_with("Founder, Prague. Skip crypto.\n\nFrom your coding-agent sessions")
+        );
+        assert_eq!(learned(&conn).unwrap().unwrap().days, 14);
+        forget_learned(&conn).unwrap();
+        assert_eq!(profile(&conn).unwrap(), "Founder, Prague. Skip crypto.");
+        assert!(learned(&conn).unwrap().is_none());
+    }
+
+    #[test]
+    fn learned_profile_is_stale_after_the_refresh_window() {
+        let at = |days_ago: i64| Learned {
+            text: "x".into(),
+            at: (chrono::Utc::now() - chrono::Duration::days(days_ago)).to_rfc3339(),
+            days: 30,
+        };
+        assert!(!learned_is_stale(&at(6), 7));
+        assert!(learned_is_stale(&at(7), 7));
+        assert!(learned_is_stale(
+            &Learned {
+                at: "not a date".into(),
+                ..at(0)
+            },
+            7
+        ));
+    }
+
+    #[test]
     fn reenabling_keeps_original_enabled_at() {
         let conn = memory();
         upsert_channel(&conn, "UC1", "One").unwrap();
@@ -522,5 +645,30 @@ mod tests {
         assert_eq!(all, ["new", "failed", "done"], "newest first");
         assert_eq!(ids(week(&conn, 7, true, 60).unwrap()), ["done"]);
         assert_eq!(week(&conn, 7, false, 2).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn first_brief_queues_only_the_newest_upload_of_untouched_followed_channels() {
+        let conn = memory();
+        for (id, enabled) in [("UC1", true), ("UC2", true), ("UC3", false)] {
+            upsert_channel(&conn, id, id).unwrap();
+            set_enabled(&conn, id, enabled).unwrap();
+        }
+        for (id, channel, status, published) in [
+            ("a-old", "UC1", "skipped", "2026-10-20T00:00:00+00:00"),
+            ("a-new", "UC1", "skipped", "2026-10-26T00:00:00+00:00"),
+            ("b-skip", "UC2", "skipped", "2026-10-26T00:00:00+00:00"),
+            ("b-done", "UC2", "done", "2026-10-25T00:00:00+00:00"),
+            ("c-new", "UC3", "skipped", "2026-10-26T00:00:00+00:00"),
+        ] {
+            conn.execute(
+                "INSERT INTO videos(id, channel_id, title, url, published, status) VALUES(?1, ?2, ?1, 'u', ?4, ?3)",
+                params![id, channel, status, published],
+            )
+            .unwrap();
+        }
+        assert_eq!(queue_first_brief(&conn, 1).unwrap(), 1);
+        assert_eq!(ids(pending(&conn).unwrap()), ["a-new"]);
+        assert_eq!(queue_first_brief(&conn, 1).unwrap(), 0, "not twice");
     }
 }

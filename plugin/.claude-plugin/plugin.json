@@ -1,7 +1,7 @@
 {
   "name": "tx",
   "displayName": "tx: video TL;DRs",
-  "version": "0.18.2",
+  "version": "0.19.0",
   "description": "Watch YouTube channels and get TL;DRs of new uploads scored against what you want to learn. tx fetches transcripts on your computer; Claude does the analysis.",
   "author": {
     "name": "Jiří Rýdel",

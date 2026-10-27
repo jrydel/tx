@@ -12,14 +12,13 @@ use tx_core::report;
 /// Setup isn't done until tx knows what the user wants to learn and follows something.
 pub fn needs_setup(db: &Db) -> Result<bool> {
     let conn = db.lock().unwrap();
-    Ok(db::get_settings(&conn)?.profile.trim().is_empty()
-        || !db::channels(&conn)?.iter().any(|c| c.enabled))
+    Ok(db::profile(&conn)?.trim().is_empty() || !db::channels(&conn)?.iter().any(|c| c.enabled))
 }
 
 /// Where the user stands, and the single next step for the agent to guide them to.
 pub fn status(db: &Db) -> Result<Value> {
     let conn = db.lock().unwrap();
-    let profile = db::get_settings(&conn)?.profile;
+    let profile = db::profile(&conn)?;
     let channels = db::channels(&conn)?;
     let waiting = db::pending(&conn)?.len();
     drop(conn);
@@ -30,10 +29,23 @@ pub fn status(db: &Db) -> Result<Value> {
     let daily = schedule::scheduled();
     let example = watched.first().map_or("Fireship", |c| c.title.as_str());
 
+    let learned = db::learned(&db.lock().unwrap())?;
+    let can_learn = tx_core::sessions::available();
     let (next, say): (String, Vec<String>) = if profile.trim().is_empty() {
+        let mut say = vec!["I'm a backend engineer building LLM features. I want concrete agent and eval techniques and notable model launches; skip hype.".to_string()];
+        if can_learn {
+            say.insert(0, "Learn who I am from my coding sessions".into());
+        }
         (
-            "Setup has just begun: show the setup panel with onboarding. It starts by asking who they are and what they want to learn; every score is against it. In apps without panels, ask in chat and save it with set_profile.".into(),
-            vec!["I'm a backend engineer building LLM features. I want concrete agent and eval techniques and notable model launches; skip hype.".into()],
+            format!(
+                "Setup has just begun: show the setup panel with onboarding. It starts by asking who they are and what they want to learn; every score is against it. In apps without panels, ask in chat and save it with set_profile.{}",
+                if can_learn {
+                    " They use coding agents on this computer, so offer to learn it from their sessions instead (learn_from_sessions)."
+                } else {
+                    ""
+                }
+            ),
+            say,
         )
     } else if watched.is_empty() && imported > 0 {
         (
@@ -74,12 +86,29 @@ pub fn status(db: &Db) -> Result<Value> {
             vec!["Show me my latest brief".into(), "Suggest more channels and podcasts for me".into()],
         )
     };
+    // Scheduled runs refresh a learned profile; without them it goes stale, so offer to.
+    let stale = learned
+        .as_ref()
+        .is_some_and(|l| db::learned_is_stale(l, tx_core::learn::REFRESH_DAYS));
+    let (next, say) = if stale && !daily {
+        let mut say = say;
+        say.push("Refresh what you learned about me".into());
+        (
+            format!(
+                "{next} Also: what tx learned from their coding sessions is over a week old; offer to refresh it with learn_from_sessions."
+            ),
+            say,
+        )
+    } else {
+        (next, say)
+    };
     Ok(json!({
         "profile": if profile.trim().is_empty() { Value::Null } else { json!(profile) },
         "following": { "youtube_channels": watched.len() - shows, "podcasts": shows, "imported_not_followed": imported },
         "waiting_for_analysis": waiting,
         "analyzed": analyzed,
         "daily_brief": daily,
+        "learned_from_sessions": learned.map(|l| json!({ "updated": l.at, "stale": stale })),
         "next_step": next,
         "you_could_say": say,
     }))
@@ -110,7 +139,10 @@ pub fn set_daily_brief(db: &Db, args: &Value, client: &str) -> Result<String> {
 /// The setup panel (an MCP App view): the step to show and everything its checklist needs.
 pub fn onboarding(db: &Db, args: &Value, ui: bool) -> Result<Value> {
     let conn = db.lock().unwrap();
-    let profile = db::get_settings(&conn)?.profile;
+    // The panel edits the user's own words; the step counts what tx learned too.
+    let own = db::get_settings(&conn)?.profile;
+    let profile = db::profile(&conn)?;
+    let learned = db::learned(&conn)?;
     let channels = db::channels(&conn)?;
     drop(conn);
     let daily = schedule::scheduled();
@@ -147,8 +179,12 @@ pub fn onboarding(db: &Db, args: &Value, ui: bool) -> Result<Value> {
         )
     });
     let can_schedule = Agent::Claude.find().is_some() || Agent::Codex.find().is_some();
+    let can_learn = tx_core::sessions::available();
     // Apps without MCP Apps show no panel: the agent asks the step's question in chat instead.
     let ask = match step {
+        "about" if can_learn => {
+            "Ask who they are and what they want to learn (2-3 sentences, with an example), and save it with set_profile. Or offer to learn it from their coding-agent sessions on this computer: if they agree, call learn_from_sessions."
+        }
         "about" => {
             "Ask who they are and what they want to learn (2-3 sentences, with an example), and save it with set_profile."
         }
@@ -178,8 +214,9 @@ pub fn onboarding(db: &Db, args: &Value, ui: bool) -> Result<Value> {
     );
     Ok(json!({
         "content": [{ "type": "text", "text": text }],
-        "structuredContent": { "view": "onboarding", "step": step, "profile": profile, "channels": list,
-                               "daily_brief": daily, "can_schedule": can_schedule },
+        "structuredContent": { "view": "onboarding", "step": step, "profile": own, "channels": list,
+                               "daily_brief": daily, "can_schedule": can_schedule, "can_learn": can_learn,
+                               "learned": learned.map(|l| json!({ "at": l.at, "days": l.days })) },
     }))
 }
 
@@ -187,6 +224,7 @@ pub fn onboarding(db: &Db, args: &Value, ui: bool) -> Result<Value> {
 pub fn prompts() -> Value {
     json!([
         { "name": "get_started", "title": "Set up tx", "description": "Walk through what's left: your interests, what to follow, the daily brief" },
+        { "name": "learn", "title": "Learn who I am", "description": "Let tx learn what you work on from your Claude Code, Codex and Oh My Pi sessions, so every score fits you" },
         { "name": "brief", "title": "Today's brief", "description": "Screen new videos and episodes and show what's worth your time" },
         { "name": "follow", "title": "Follow channels or podcasts", "description": "Add YouTube channels or podcasts by name",
           "arguments": [{ "name": "what", "description": "Channel names, @handles, podcast names or links", "required": true }] },
@@ -200,6 +238,7 @@ pub fn prompt(name: &str, args: &Value) -> Result<Value> {
     let arg = |k: &str| args[k].as_str().map(str::trim).filter(|s| !s.is_empty());
     let text = match name {
         "get_started" => "Use tx: check where I stand (status) and walk me through the next step.".to_string(),
+        "learn" => "Use tx: learn who I am from my coding-agent sessions.".to_string(),
         "brief" => "Use tx: check my channels and podcasts for new uploads, screen them for me, and show me the brief.".to_string(),
         "follow" => match arg("what") {
             Some(w) => format!("Use tx: follow {w}."),
@@ -412,7 +451,7 @@ pub fn suggest(
 pub async fn suggest_channels(db: &Db, client: &str) -> Result<Value> {
     let (profile, channels) = {
         let conn = db.lock().unwrap();
-        (db::get_settings(&conn)?.profile, db::channels(&conn)?)
+        (db::profile(&conn)?, db::channels(&conn)?)
     };
     if profile.trim().is_empty() {
         bail!("save what you want to learn first; the picks are for that");
@@ -439,7 +478,11 @@ pub async fn screen_now(db: &Db, client: &str) -> Result<Value> {
     if let Err(e) = tx_core::feeds::poll(db).await {
         eprintln!("tx: checking for new uploads failed: {e:#}");
     }
-    let waiting = db::pending(&db.lock().unwrap())?.len();
+    let waiting = {
+        let conn = db.lock().unwrap();
+        db::queue_first_brief(&conn, 1)?;
+        db::pending(&conn)?.len()
+    };
     let mut running = SCREENING.lock().unwrap();
     if let Some(child) = running.as_mut()
         && child.try_wait()?.is_none()

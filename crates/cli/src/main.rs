@@ -9,6 +9,7 @@ use tx_core::{agent, captions, db, paths, report, ytdlp};
 
 mod agents;
 mod guide;
+mod learn;
 mod mcp;
 mod onboard;
 mod review;
@@ -92,6 +93,27 @@ enum Command {
         /// Which agent does the analysis (default: whichever is installed)
         #[arg(long, value_enum)]
         agent: Option<agents::Agent>,
+    },
+    /// Learn who you are from your Claude Code, Codex and Oh My Pi sessions, so scores fit your work
+    Learn {
+        /// Which agent writes the profile (default: whichever is installed)
+        #[arg(long, value_enum)]
+        agent: Option<agents::Agent>,
+        /// Days of sessions to read
+        #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u32).range(1..=365))]
+        days: u32,
+        /// Print exactly what would be sent to the agent, and stop
+        #[arg(long)]
+        dry_run: bool,
+        /// Show what tx has learned
+        #[arg(long, conflicts_with_all = ["dry_run", "off", "agent", "yes"])]
+        show: bool,
+        /// Forget what tx learned and stop refreshing it
+        #[arg(long, conflicts_with_all = ["dry_run", "agent", "yes"])]
+        off: bool,
+        /// Don't ask before sending excerpts or saving the profile
+        #[arg(long, conflicts_with = "dry_run")]
+        yes: bool,
     },
     /// Make tx available inside an agent's normal conversations
     Setup {
@@ -208,6 +230,13 @@ async fn run(cli: Cli) -> Result<i32> {
                 Some(a) => a,
                 None => agents::Agent::detect()?,
             };
+            match learn::refresh(agent).await {
+                Ok(Some(n)) => {
+                    eprintln!("tx: refreshed your profile from {n} of your recent prompts")
+                }
+                Ok(None) => {}
+                Err(e) => eprintln!("tx: couldn't refresh your profile from your sessions: {e:#}"),
+            }
             let code = tokio::task::spawn_blocking(move || agents::run(agent)).await??;
             // Catch anything the agent analyzed but didn't put in a digest.
             let d = report::write_digest(&db::connect()?)?;
@@ -216,6 +245,29 @@ async fn run(cli: Cli) -> Result<i32> {
                 eprintln!("tx: digest written to {}", p.display());
             }
             return Ok(code);
+        }
+        Some(Command::Learn {
+            agent,
+            days,
+            dry_run,
+            show,
+            off,
+            yes,
+        }) => {
+            if show {
+                learn::show()?;
+            } else if off {
+                learn::off()?;
+            } else {
+                let options = learn::Options {
+                    agent,
+                    days,
+                    dry_run,
+                    yes,
+                };
+                learn::run(&onboard::theme(), options).await?;
+            }
+            return Ok(0);
         }
         Some(Command::Setup { target }) => {
             agents::setup(target)?;

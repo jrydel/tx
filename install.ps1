@@ -15,4 +15,10 @@ if (($userPath -split ";") -notcontains $dir) {
 }
 Write-Host "Installed $(& $exe --version) to $exe"
 Write-Host ""
-Write-Host "Next, open a new terminal and run 'tx' to set it up (your AI apps, what you want to learn, what to follow)."
+# Set up right away when a person is at the console; a bare `tx` only shows status once setup is done.
+if (-not $env:TX_NO_SETUP -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+  Write-Host "Setting tx up now. Skip with Ctrl+C; run 'tx' in a new terminal any time to continue."
+  & $exe
+} else {
+  Write-Host "Next, open a new terminal and run 'tx' to set it up (your AI apps, what you want to learn, what to follow)."
+}

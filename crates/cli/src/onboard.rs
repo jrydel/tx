@@ -17,7 +17,7 @@ const STEPS: [&str; 4] = ["Your AI", "About you", "What to follow", "Daily brief
 const STOP: usize = 16;
 
 /// The same visual language as the brief in the AI apps: green is done, bold is now, dim is later.
-fn theme() -> ColorfulTheme {
+pub(crate) fn theme() -> ColorfulTheme {
     let s = |t: &str| style(t.to_string()).for_stderr();
     ColorfulTheme {
         prompt_prefix: s("›").dim(),
@@ -158,7 +158,7 @@ fn wrap(text: &str, width: usize) -> impl Iterator<Item = String> {
 /// What a bare `tx` shows once setup is done: you use tx inside your AI app, and where you stand.
 pub fn home() -> Result<()> {
     let conn = db::connect()?;
-    let profile = db::get_settings(&conn)?.profile;
+    let profile = db::profile(&conn)?;
     let debrief = debrief::current(&conn)?;
     let channels = db::channels(&conn)?;
     let waiting = db::pending(&conn)?.len();
@@ -169,6 +169,8 @@ pub fn home() -> Result<()> {
     let app = either(&apps);
     let tick = |t: String| format!("{} {t}", style("✓").green());
     let open = |t: String| format!("{} {t}", style("○").dim());
+    // One line in the card: the profile can span paragraphs (your words, then what tx learned).
+    let profile = profile.split_whitespace().collect::<Vec<_>>().join(" ");
     let short: String = profile.chars().take(60).collect();
     let mut lines = vec![
         format!(
@@ -270,6 +272,7 @@ pub fn reset(all: bool, yes: bool) -> Result<()> {
         let mut s = db::get_settings(&conn)?;
         s.profile.clear();
         db::save_settings(&conn, &s)?;
+        db::forget_learned(&conn)?;
         conn.execute("UPDATE channels SET enabled = 0, enabled_at = NULL", [])?;
     }
     println!(
@@ -300,7 +303,7 @@ pub async fn run() -> Result<()> {
     rail(0);
     let apps = connect_apps(&theme)?;
     rail(1);
-    about(&theme, &db)?;
+    about(&theme, &db).await?;
     rail(2);
     follow(&theme, &db).await?;
     rail(3);
@@ -310,7 +313,7 @@ pub async fn run() -> Result<()> {
     let (following, profile) = {
         let conn = db.lock().unwrap();
         let n = db::channels(&conn)?.iter().filter(|c| c.enabled).count();
-        (n, db::get_settings(&conn)?.profile)
+        (n, db::profile(&conn)?)
     };
     let tick = |t: String| format!("{} {t}", style("✓").green());
     let mut lines = vec![];
@@ -334,12 +337,16 @@ pub async fn run() -> Result<()> {
         && let Ok(agent) = Agent::detect()
         && Confirm::with_theme(&theme)
             .with_prompt(format!(
-                "Screen the newest uploads now with {}? (a few minutes)",
+                "Screen the latest upload of each channel you follow now, with {}? (a few minutes)",
                 agent.program()
             ))
             .default(false)
             .interact()?
     {
+        if let Err(e) = feeds::poll(&db).await {
+            println!("  {} checking for uploads failed: {e:#}", style("✗").red());
+        }
+        db::queue_first_brief(&db.lock().unwrap(), 1)?;
         agents::run(agent)?;
     }
     Ok(())
@@ -394,10 +401,31 @@ fn connect_apps(theme: &ColorfulTheme) -> Result<Vec<&'static str>> {
     Ok(connected)
 }
 
-fn about(theme: &ColorfulTheme, db: &Db) -> Result<()> {
+async fn about(theme: &ColorfulTheme, db: &Db) -> Result<()> {
     note("Who you are and what you want to learn. Every video and episode is scored against this.");
-    note("e.g. I'm a backend engineer building LLM features. I want concrete agent and eval");
-    note("     techniques and notable model launches; skip hype and drama.");
+    let learned = db::learned(&db.lock().unwrap())?.is_some();
+    if !learned
+        && tx_core::sessions::available()
+        && Agent::detect().is_ok()
+        && Confirm::with_theme(theme)
+            .with_prompt("Learn it from your recent Claude Code, Codex and Oh My Pi sessions? (your own prompts, redacted)")
+            .default(true)
+            .interact()?
+    {
+        let options = crate::learn::Options {
+            agent: None,
+            days: 30,
+            dry_run: false,
+            yes: false,
+        };
+        if let Err(e) = crate::learn::run(theme, options).await {
+            println!("  {} {e:#}", style("✗").red());
+        }
+        note("Anything to add in your own words, e.g. what you want to learn? Leave it empty to skip.");
+    } else {
+        note("e.g. I'm a backend engineer building LLM features. I want concrete agent and eval");
+        note("     techniques and notable model launches; skip hype and drama.");
+    }
     let conn = db.lock().unwrap();
     let mut settings = db::get_settings(&conn)?;
     let profile: String = Input::with_theme(theme)
@@ -541,7 +569,7 @@ async fn add_podcasts(theme: &ColorfulTheme, db: &Db) -> Result<()> {
 async fn pick(theme: &ColorfulTheme, db: &Db) -> Result<()> {
     let (channels, profile) = {
         let conn = db.lock().unwrap();
-        (db::channels(&conn)?, db::get_settings(&conn)?.profile)
+        (db::channels(&conn)?, db::profile(&conn)?)
     };
     if channels.is_empty() {
         return Ok(());
