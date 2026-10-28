@@ -2,6 +2,8 @@
 
 **Turn videos and podcasts into knowledge you keep.**
 
+Website: [tx.todayworks.ai](https://tx.todayworks.ai)
+
 tx helps you decide **what is worth watching for you**, not just get a shorter version of a video. Give it a link, compare several videos, or have it screen new uploads from channels and podcasts you follow.
 
 - **Review a link:** get a WATCH / SKIM / SKIP verdict, a relevance score, the part worth watching, and timestamped takeaways.
